@@ -3,7 +3,7 @@
   "author" : "Roberto Monno",
   "author-email" : "r.monno@nextworks.it",
   "version" : 1,
-  "implements" : ["opennaas_resourcemanager", "opennaas_exceptions"],
+  "implements" : ["opennaas_resourcemanager", "opennaas_exceptions", "opennaas_models"],
   "loads-after" : ["geniv3handler", "geniv3delegatebase", "geniv3exceptions", "config"],
   "requires" : []
 }

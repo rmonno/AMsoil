@@ -5,6 +5,7 @@ logger=amsoil.core.log.getLogger('ons_geniv3delegate')
 GENIv3DelegateBase = pm.getService('geniv3delegatebase')
 geni_ex = pm.getService('geniv3exceptions')
 ons_ex = pm.getService('opennaas_exceptions')
+ons_models = pm.getService('opennaas_models')
 
 """
 GENI delegate.
@@ -14,6 +15,8 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
     """ OpenNaas GENI version 3 delegate. """
 
     URN_PREFIX = 'urn:OPENNAAS_AM'
+    NAMESPACE_PREFIX = 'opennaas'
+    NAMESPACE_URI = 'http://example.com/' + NAMESPACE_PREFIX
 
     def __init__(self):
         super(OpenNaasGENI3Delegate, self).__init__()
@@ -30,46 +33,46 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def get_request_extensions_mapping(self):
-        """Should return a dict of namespace names and request extensions (XSD schema's URLs as string).
-        Format: {xml_namespace_prefix : namespace_uri, ...}
-        """
-        return {}
+        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def get_manifest_extensions_mapping(self):
-        """Should return a dict of namespace names and manifest extensions (XSD schema's URLs as string).
-        Format: {xml_namespace_prefix : namespace_uri, ...}
-        """
-        return {}
+        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def get_ad_extensions_mapping(self):
-        """Should return a dict of namespace names and advertisement extensions (XSD schema URLs as string) to be sent back by GetVersion.
-        Format: {xml_namespace_prefix : namespace_uri, ...}
-        """
-        return {}
+        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def is_single_allocation(self):
-        """Shall return a True or False. When True (not default), and performing one of (Describe, Allocate, Renew, Provision, Delete), such an AM requires you to include either the slice urn or the urn of all the slivers in the same state.
-        see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3/CommonConcepts#OperationsonIndividualSlivers
-        """
         return True
 
     @enter_method_log
     def get_allocation_mode(self):
-        """Shall return a either 'geni_single', 'geni_disjoint', 'geni_many'.
-        It defines whether this AM allows adding slivers to slices at an AM (i.e. calling Allocate multiple times, without first deleting the allocated slivers).
-        For description of the options see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3/CommonConcepts#OperationsonIndividualSlivers"""
         return 'geni_many'
 
     @enter_method_log
     def list_resources(self, client_cert, credentials, geni_available):
-        """Shall return an RSpec version 3 (advertisement) or raise an GENIv3...Error.
-        If {geni_available} is set, only return availabe resources.
-        For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#ListResources
-        """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        self.__authenticate(client_cert, credentials, None, ('listslices',))
+
+        rn_ = self.lxml_ad_root()
+        em_ = self.lxml_ad_element_maker(OpenNaasGENI3Delegate.NAMESPACE_PREFIX)
+
+        for r in self._resource_manager.get_resources():
+            if not r.available and geni_available: continue
+
+            res_ = em_.resource()
+            if r.type() == ons_models.Resource.RESOURCE:
+                res_.append(em_.available('True' if r.available else 'False'))
+
+            elif r.type() == ons_models.Resource.ROADM_RESOURCE:
+                res_.append(em_.available('True' if r.available else 'False'))
+                res_.append(em_.special(r.special))
+
+            rn_.append(res_)
+
+        return self.lxml_to_string(rn_)
+
 
     @enter_method_log
     def describe(self, urns, client_cert, credentials):
@@ -211,3 +214,8 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Shutdown
         """
         raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+
+    #private
+    def __authenticate(self, client_cert, credentials, slice_urn=None, privileges=()):
+        if pm.getService("config").get("opennaas.auth") is True:
+            self.auth(client_cert, credentials, slice_urn, privileges)

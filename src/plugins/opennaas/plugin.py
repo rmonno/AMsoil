@@ -8,13 +8,15 @@ OpenNaas plugin.
 def setup():
     # setup config keys
     config = pm.getService("config")
-    config.install("opennass.test_config_value", 123, "Only a test configuration value")
+    config.install("opennaas.auth", False, "Enable/Disable client authentication phase")
 
     # resource manager
-    from opennaas_resourcemanager import OpenNaasResourceManager
     import opennaas_exceptions as ons_exceptions_package
-    pm.registerService('opennaas_resourcemanager', OpenNaasResourceManager())
     pm.registerService('opennaas_exceptions', ons_exceptions_package)
+    import opennaas_models as ons_models_package
+    pm.registerService('opennaas_models', ons_models_package)
+    from opennaas_resourcemanager import OpenNaasResourceManager
+    pm.registerService('opennaas_resourcemanager', OpenNaasResourceManager())
 
     # delegate
     from opennaas_geni3delegate import OpenNaasGENI3Delegate
