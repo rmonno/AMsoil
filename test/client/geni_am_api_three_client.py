@@ -172,7 +172,11 @@ if __name__ == '__main__':
     client = GENI3Client('127.0.0.1', 8001, key_path, cert_path)
     
     # all method calls
-    # print client.listResources([TEST_CREDENTIAL], True, False)
+    print "---> getVersion"
+    print client.getVersion()
+
+    print "---> listResources"
+    print client.listResources([TEST_CREDENTIAL], True, False)
     # print client.describe(TEST_SLICE_URN, [TEST_SLICE_CREDENTIAL], False)
     # print client.allocate(TEST_SLICE_URN, [TEST_SLICE_CREDENTIAL], TEST_REQUEST_RSPEC, datetime.now())
     # print client.renew([TEST_SLICE_URN], [TEST_SLICE_CREDENTIAL], datetime.now(), best_effort=True)
@@ -192,4 +196,3 @@ if __name__ == '__main__':
     #     client.raiseIfError(response)
     # except GENI3ClientError as e:
     #     print str(e)
-    
