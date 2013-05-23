@@ -81,12 +81,9 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             if geni_available and not r.available(): continue
 
             res_ = em_.resource()
-            if r.type() == ons_models.Resource.RESOURCE:
-                res_.append(em_.available('True' if r.available() else 'False'))
-
-            elif r.type() == ons_models.Resource.ROADM_RESOURCE:
-                res_.append(em_.available('True' if r.available() else 'False'))
-                res_.append(em_.special(r.special))
+            res_.append(em_.type(r.human_type()))
+            res_.append(em_.name(r.name))
+            res_.append(em_.available('True' if r.available() else 'False'))
 
             rn_.append(res_)
 
@@ -136,18 +133,15 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
     @enter_method_log
     def allocate(self, slice_urn, client_cert, credentials, rspec, end_time=None):
         """Shall return the two following values or raise an GENIv3...Error.
-        - a RSpec version 3 (manifest) of newly allocated slivers 
+        - a RSpec version 3 (manifest) of newly allocated slivers
         - a list of slivers of the format:
             [{'geni_sliver_urn' : String,
               'geni_expires'    : Python-Date,
-              'geni_allocation_status' : one of the ALLOCATION_STATE_xxx}, 
+              'geni_allocation_status' : one of the ALLOCATION_STATE_xxx},
             ...]
         Please return like so: "return respecs, slivers"
         {slice_urn} contains a slice identifier (e.g. 'urn:publicid:IDN+ofelia:eict:gcf+slice+myslice').
-        {end_time} Optional. A python datetime object which determines the desired expiry date of this allocation (see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3/CommonConcepts#geni_end_time).
-        This is the first part of what CreateSliver used to do in previous versions of the AM API. The second part is now done by Provision, and the final part is done by PerformOperationalAction.
-
-        For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Allocate
+        {end_time} Optional. A python datetime object which determines the desired expiry date of this allocation
         """
         raise geni_ex.GENIv3GeneralError("Method not implemented yet")
 
@@ -247,7 +241,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     #private
     def __authenticate(self, client_cert, credentials, slice_urn=None, privileges=()):
-        self.auth(client_cert, credentials, slice_urn, privileges)
+        return self.auth(client_cert, credentials, slice_urn, privileges)
 
     def __convert_allocation_2geni(self, state):
         if state == ons_models.ALLOCATION.FREE:
@@ -288,7 +282,13 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
         for resource in resources:
             r = em_.resource()
+            r.append(em_.type(resource.human_type()))
+            r.append(em_.name(resource.name))
             r.append(em_.identifier(resource.id()))
+            r.append(em_.available('True' if resource.available() else 'False'))
+
+            if resource.type() == ons_models.Resource.ROADM_RESOURCE:
+                r.append(em_.special(resource.special))
 
             manifest_.append(r)
 

@@ -24,6 +24,12 @@ class Resource(object):
     def type(self):
         return Resource.RESOURCE
 
+    def human_type(self):
+        if self.type() == Resource.ROADM_RESOURCE:
+            return 'roadm'
+
+        return 'generic'
+
     def id(self):
         return str(self.type()) + ":" + self.name
 
