@@ -33,55 +33,105 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def get_request_extensions_mapping(self):
+        """Should return a dict of namespace names and request extensions (XSD schema's URLs as string).
+        Format: {xml_namespace_prefix : namespace_uri, ...}
+        """
         return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def get_manifest_extensions_mapping(self):
+        """Should return a dict of namespace names and manifest extensions (XSD schema's URLs as string).
+        Format: {xml_namespace_prefix : namespace_uri, ...}
+        """
         return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def get_ad_extensions_mapping(self):
+        """Should return a dict of namespace names and advertisement extensions (XSD schema URLs as string) to be sent back by GetVersion.
+        Format: {xml_namespace_prefix : namespace_uri, ...}
+        """
         return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
 
     @enter_method_log
     def is_single_allocation(self):
+        """Shall return a True or False. When True (not default), and performing one of (Describe, Allocate, Renew, Provision, Delete),
+        such an AM requires you to include either the slice urn or the urn of all the slivers in the same state.
+        """
         return True
 
     @enter_method_log
     def get_allocation_mode(self):
+        """Shall return a either 'geni_single', 'geni_disjoint', 'geni_many'.
+        It defines whether this AM allows adding slivers to slices at an AM (i.e. calling Allocate multiple times,
+        without first deleting the allocated slivers).
+        """
         return 'geni_many'
 
     @enter_method_log
     def list_resources(self, client_cert, credentials, geni_available):
+        """Shall return an RSpec version 3 (advertisement) or raise an GENIv3...Error.
+        If {geni_available} is set, only return availabe resources.
+        """
         self.__authenticate(client_cert, credentials, None, ('listslices',))
 
         rn_ = self.lxml_ad_root()
         em_ = self.lxml_ad_element_maker(OpenNaasGENI3Delegate.NAMESPACE_PREFIX)
 
         for r in self._resource_manager.get_resources():
-            if not r.available and geni_available: continue
+            if geni_available and not r.available(): continue
 
             res_ = em_.resource()
             if r.type() == ons_models.Resource.RESOURCE:
-                res_.append(em_.available('True' if r.available else 'False'))
+                res_.append(em_.available('True' if r.available() else 'False'))
 
             elif r.type() == ons_models.Resource.ROADM_RESOURCE:
-                res_.append(em_.available('True' if r.available else 'False'))
+                res_.append(em_.available('True' if r.available() else 'False'))
                 res_.append(em_.special(r.special))
 
             rn_.append(res_)
 
         return self.lxml_to_string(rn_)
 
-
-    @enter_method_log
     def describe(self, urns, client_cert, credentials):
         """Shall return an RSpec version 3 (manifest) or raise an GENIv3...Error.
-        {urns} contains a list of slice identifiers (e.g. ['urn:publicid:IDN+ofelia:eict:gcf+slice+myslice']).
-        For more information on possible {urns} see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3/CommonConcepts#urns
-        For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Describe
+           {urns} contains a list of slice identifiers (e.g. ['urn:publicid:IDN+ofelia:eict:gcf+slice+myslice']).
         """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        return self.status(urns, client_cert, credentials)[0]
+
+    @enter_method_log
+    def status(self, urns, client_cert, credentials):
+        """Shall return the two following values or raise an GENIv3...Error.
+        - a slice urn
+        - a list of slivers of the format:
+            [{'geni_sliver_urn'         : String,
+              'geni_allocation_status'  : one of the ALLOCATION_STATE_xxx,
+              'geni_operational_status' : one of the OPERATIONAL_STATE_xxx,
+              'geni_expires'            : Python-Date,
+              'geni_error'              : optional String},
+            ...]
+        Please return like so: "return slice_urn, slivers"
+        {urns} contains a list of slice/resource identifiers (e.g. ['urn:publicid:IDN+ofelia:eict:gcf+slice+myslice']).
+        """
+        rs_ = []
+        for u_ in urns:
+            self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
+            if self.urn_type(u_) == 'slice':
+                rs_slice_ = self._resource_manager.get_resources(slice_name=u_)
+                rs_.extend(rs_slice_)
+
+            elif self.urn_type(u_) == 'sliver':
+                r_ = self._resource_manager.get_resources(resource_id=u_)
+                rs_.append(r_)
+
+            else:
+                raise geni_ex.GENIv3OperationUnsupportedError('Only slice or sliver URNs can be given to status in this aggregate')
+
+        if not len(rs_):
+            raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
+
+        slivers_ = [self.__format_sliver_status(r, True, True) for r in rs_]
+        slice_urn_ = self.lxml_to_string(self.__format_manifest_rspec(rs_))
+        return (slice_urn_, slivers_)
 
     @enter_method_log
     def allocate(self, slice_urn, client_cert, credentials, rspec, end_time=None):
@@ -148,26 +198,6 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         raise geni_ex.GENIv3GeneralError("Method not implemented yet")
 
     @enter_method_log
-    def status(self, urns, client_cert, credentials):
-        """Shall return the two following values or raise an GENIv3...Error.
-        - a slice urn
-        - a list of slivers of the format:
-            [{'geni_sliver_urn'         : String,
-              'geni_allocation_status'  : one of the ALLOCATION_STATE_xxx,
-              'geni_operational_status' : one of the OPERATIONAL_STATE_xxx,
-              'geni_expires'            : Python-Date,
-              'geni_error'              : optional String}, 
-            ...]
-        Please return like so: "return slice_urn, slivers"
-
-        {urns} contains a list of slice/resource identifiers (e.g. ['urn:publicid:IDN+ofelia:eict:gcf+slice+myslice']).
-        For more information on possible {urns} see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3/CommonConcepts#urns
-
-        For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Status
-        """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
-
-    @enter_method_log
     def perform_operational_action(self, urns, client_cert, credentials, action, best_effort):
         """Shall return a list of slivers of the following format or raise an GENIv3...Error:
         [{'geni_sliver_urn'         : String,
@@ -217,5 +247,49 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     #private
     def __authenticate(self, client_cert, credentials, slice_urn=None, privileges=()):
-        if pm.getService("config").get("opennaas.auth") is True:
-            self.auth(client_cert, credentials, slice_urn, privileges)
+        self.auth(client_cert, credentials, slice_urn, privileges)
+
+    def __convert_allocation_2geni(self, state):
+        if state == ons_models.ALLOCATION.FREE:
+            return self.ALLOCATION_STATE_UNALLOCATED
+
+        elif state == ons_models.ALLOCATION.ALLOCATED:
+            return self.ALLOCATION_STATE_ALLOCATED
+
+        elif state == ons_models.ALLOCATION.PROVISIONED:
+            return self.ALLOCATION_STATE_PROVISIONED
+
+        raise geni_ex.GENIv3GeneralError("Unknown allocation state!")
+
+    def __convert_operational_2geni(self, state):
+        if state == ons_models.OPERATIONAL.FAILED:
+            return self.OPERATIONAL_STATE_FAILED
+
+        raise geni_ex.GENIv3GeneralError("Unknown operational state!")
+
+    def __format_sliver_status(self, resource, allocation=False, operational=False, error=None):
+        status_ = {'geni_sliver_urn' : resource.id(),
+                   'geni_expires'    : resource.expire()}
+
+        if allocation:
+            status_['geni_allocation_status'] = self.__convert_allocation_2geni(resource.allocation_state)
+
+        if operational:
+            status_['geni_operational_status'] = self.__convert_operational_2geni(resource.operational_state)
+
+        if (error):
+            status_['geni_error'] = error
+
+        return status_
+
+    def __format_manifest_rspec(self, resources):
+        manifest_ = self.lxml_manifest_root()
+        em_ = self.lxml_manifest_element_maker(OpenNaasGENI3Delegate.NAMESPACE_PREFIX)
+
+        for resource in resources:
+            r = em_.resource()
+            r.append(em_.identifier(resource.id()))
+
+            manifest_.append(r)
+
+        return manifest_
