@@ -81,8 +81,9 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             if geni_available and not r.available(): continue
 
             res_ = em_.resource()
-            res_.append(em_.type(r.human_type()))
-            res_.append(em_.name(r.name))
+            res_.append(em_.type(r.type()))
+            res_.append(em_.slice(r.slice_name))
+            res_.append(em_.name(r.resource_name))
             res_.append(em_.available('True' if r.available() else 'False'))
 
             rn_.append(res_)
@@ -126,7 +127,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         if not len(rs_):
             raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
 
-        slivers_ = [self.__format_sliver_status(r, True, True) for r in rs_]
+        slivers_ = [self.__format_sliver_status(r, True) for r in rs_]
         slice_urn_ = self.lxml_to_string(self.__format_manifest_rspec(rs_))
         return (slice_urn_, slivers_)
 
@@ -142,8 +143,49 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         Please return like so: "return respecs, slivers"
         {slice_urn} contains a slice identifier (e.g. 'urn:publicid:IDN+ofelia:eict:gcf+slice+myslice').
         {end_time} Optional. A python datetime object which determines the desired expiry date of this allocation
+
+        Rspec details: type and name of the resources
         """
+        c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
+        logger.debug("client_urn=%s, client_uuid=%s, client_email=%s" % (str(c_urn_), str(c_uuid_), str(c_email_),))
+
+        if end_time != None:
+            raise geni_ex.GENIv3OperationUnsupportedError('Reservation timeout NOT suppoted yet!')
+
+        logger.info("Slice URN=%s" % (slice_urn,))
+        # parse RSpec -> resource type and name
+        resources = []
+        root_ = self.lxml_parse_rspec(rspec)
+        logger.info("<<<<<<<<<<<<<<<<<<<<<<<<<<")
+
+        for em in root_.getchildren():
+            logger.error("xxxxxxxxxxxxxxxxx %s" % (str(em),))
+
+            if not self.lxml_elm_has_request_prefix(em, 'opennaas'):
+                raise geni_ex.GENIv3BadArgsError("Unknown RSpec prefix (%s)." % (em,))
+
+            #if (self.lxml_elm_equals_request_tag(em, 'dhcp', 'ip')):
+            #    requested_ips.append(elm.text.strip())
+            #elif (self.lxml_elm_equals_request_tag(elm, 'dhcp', 'iprange')):
+            #    pass
+                # raise geni_ex.GENIv3GeneralError('IP ranges in RSpecs are not supported yet.') # TODO
+            #else:
+            #    raise geni_ex.GENIv3BadArgsError("RSpec contains an element I dont understand (%s)." % (elm,))
+
         raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        reserved_leases = []
+        for rip in requested_ips:
+            try:
+                reserved_leases.append(self._resource_manager.reserve_lease(rip, slice_urn, client_uuid, client_email, end_time))
+            except dhcp_ex.DHCPLeaseNotFound as e: # translate the resource manager exceptions to GENI exceptions
+                raise geni_ex.GENIv3SearchFailedError("The desired IP(s) could no be found (%s)." % (rip,))
+            except dhcp_ex.DHCPLeaseAlreadyTaken as e:
+                raise geni_ex.GENIv3AlreadyExistsError("The desired IP(s) is already taken (%s)." % (rip,))
+
+        # assemble sliver list
+        sliver_list = [self._get_sliver_status_hash(lease, True, True, "") for lease in reserved_leases]
+        return self.lxml_to_string(self._get_manifest_rspec(reserved_leases)), sliver_list
+
 
     @enter_method_log
     def renew(self, urns, client_cert, credentials, expiration_time, best_effort):
@@ -262,14 +304,14 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         raise geni_ex.GENIv3GeneralError("Unknown operational state!")
 
     def __format_sliver_status(self, resource, allocation=False, operational=False, error=None):
-        status_ = {'geni_sliver_urn' : resource.id(),
-                   'geni_expires'    : resource.expire()}
+        status_ = {'geni_sliver_urn' : resource.resource_name,
+                   'geni_expires'    : str(resource.end_time)}
 
         if allocation:
-            status_['geni_allocation_status'] = self.__convert_allocation_2geni(resource.allocation_state)
+            status_['geni_allocation_status'] = self.__convert_allocation_2geni(resource.allocation)
 
         if operational:
-            status_['geni_operational_status'] = self.__convert_operational_2geni(resource.operational_state)
+            raise geni_ex.GENIv3BadArgsError("Unsupported operational state argument!")
 
         if (error):
             status_['geni_error'] = error
@@ -282,13 +324,13 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
         for resource in resources:
             r = em_.resource()
-            r.append(em_.type(resource.human_type()))
-            r.append(em_.name(resource.name))
-            r.append(em_.identifier(resource.id()))
+            r.append(em_.type(resource.type()))
+            r.append(em_.slice(resource.slice_name))
+            r.append(em_.name(resource.resource_name))
             r.append(em_.available('True' if resource.available() else 'False'))
-
-            if resource.type() == ons_models.Resource.ROADM_RESOURCE:
-                r.append(em_.special(resource.special))
+            r.append(em_.allocation_state(resource.state()))
+            r.append(em_.modified(str(resource.modified_time)))
+            r.append(em_.end(str(resource.end_time)))
 
             manifest_.append(r)
 
