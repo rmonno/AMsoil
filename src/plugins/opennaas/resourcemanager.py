@@ -32,7 +32,7 @@ class RMInterface(object):
 
     @abstractmethod
     def reserve_resources(self, resources_name, slice_name, end_time=None,
-                          client_name="", client_id="", client_mail=""):
+                          client_name="", client_id=0, client_mail=""):
         """ Reserve resource
         :param resources_name: the name of the resources
         :param slice_name: the name of the slice
@@ -75,7 +75,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def reserve_resources(self, resources_name, slice_name, end_time=None,
-                          client_name="", client_id="", client_mail=""):
+                          client_name="", client_id=0, client_mail=""):
         s_ = sessionmaker(bind=ons_models.engine)()
 
         rs_ = []
