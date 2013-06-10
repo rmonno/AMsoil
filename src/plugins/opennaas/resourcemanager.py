@@ -13,10 +13,21 @@ import datetime as dt
 import sqlalchemy as sqla
 import sqlalchemy.orm.exc as sqla_ex
 from sqlalchemy.orm import sessionmaker
+import urllib2
 
 """
 OpenNaas Resource Manager.
 """
+def send_to(url, data):
+    try:
+        request = urllib2.Request(url, data)
+        request.add_header('Content-Type', 'application/xml')
+        response = urllib2.urlopen(request)
+        return response.read()
+
+    except urllib2.HTTPError as error:
+        raise ons_ex.ONSException(str(error))
+
 
 class RMInterface(object):
     __metaclass__ = ABCMeta
@@ -32,7 +43,7 @@ class RMInterface(object):
 
     @abstractmethod
     def reserve_resources(self, resources_name, slice_name, end_time=None,
-                          client_name="", client_id=0, client_mail=""):
+                          client_name="", client_id="", client_mail=""):
         """ Reserve resource
         :param resources_name: the name of the resources
         :param slice_name: the name of the slice
@@ -51,6 +62,8 @@ class RMRoadmManager(RMInterface):
         super(RMRoadmManager, self).__init__()
         ons_models.meta.create_all()
         logger.debug("Init openNaas ROADM resource manager")
+
+        if config.get("opennaas.tests"): RMTests()
 
     @serviceinterface
     def get_resources(self, slice_name=None, resource_name=None):
@@ -75,7 +88,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def reserve_resources(self, resources_name, slice_name, end_time=None,
-                          client_name="", client_id=0, client_mail=""):
+                          client_name="", client_id="", client_mail=""):
         s_ = sessionmaker(bind=ons_models.engine)()
 
         rs_ = []
@@ -118,3 +131,32 @@ class RMRoadmManager(RMInterface):
             raise ons_ex.ONSException(str(e))
 
         return rs_
+
+
+class RMTests:
+    def __init__(self):
+        try: # db tests
+            s_ = sessionmaker(bind=ons_models.engine)()
+            rs = s_.query(ons_models.Roadm).all()
+            logger.debug("TESTs: resources=%s" % (str(rs)))
+
+            s_.add(ons_models.Roadm(sname='urn:publicid:IDN+geni:gpo:gcf+slice+pippuzzoSlice', rname='pippo'))
+            s_.add(ons_models.Roadm(sname='urn:publicid:IDN+geni:gpo:gcf+slice+pippuzzoSlice', rname='pluto'))
+            s_.add(ons_models.Roadm(sname='urn:publicid:IDN+geni:gpo:gcf+slice+pippuzzoSlice', rname='paperino'))
+            s_.add(ons_models.Roadm(sname='urn:publicid:IDN+geni:gpo:gcf+slice+pippuzzoSlice', rname='topolo'))
+            s_.commit()
+
+        except Exception as e:
+            logger.error("Tests error: %s" % str(e))
+
+        try: # opennaas communication tests
+            url_ = 'http://' + config.get("opennaas.server_address") + ':' +\
+                   str(config.get("opennaas.server_port")) + '/opennaas/resources/create'
+            descr = open('/home/ofelia-cf/opennaas/utils/examples/descriptors/roadm.descriptor', 'r')
+            data = descr.read()
+
+            r = send_to(url_, data)
+            logger.debug("TESTs: Response=%s" % str(r))
+
+        except Exception as e:
+            logger.error("Tests error: %s" % str(e))

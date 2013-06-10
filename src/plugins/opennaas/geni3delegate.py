@@ -165,9 +165,9 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             rs_ = self._resource_manager.reserve_resources(resources_name=roadms_,
                                                            slice_name=slice_urn,
                                                            end_time=end_time,
-                                                           client_name=c_urn_,
-                                                           client_id=c_uuid_,
-                                                           client_mail=c_email_)
+                                                           client_name=str(c_urn_),
+                                                           client_id=str(c_uuid_),
+                                                           client_mail=str(c_email_))
         except ons_ex.ONSResourceNotFound as e:
             logger.error(str(e))
             raise geni_ex.GENIv3SearchFailedError(str(e))

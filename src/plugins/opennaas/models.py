@@ -26,7 +26,7 @@ roadm = sqla.Table('roadm', meta,
                    sqla.Column('modified_time', sqla.DateTime, default=datetime.now),
                    sqla.Column('end_time', sqla.DateTime, default=datetime.now),
                    sqla.Column('client_name', sqla.String, default=''),
-                   sqla.Column('client_id', sqla.BigInteger, default=0),
+                   sqla.Column('client_id', sqla.String, default=''),
                    sqla.Column('client_email', sqla.String, default=''),
                   )
 
@@ -36,7 +36,7 @@ class Roadm(object):
         self.resource_name = rname
 
     def __repr__(self):
-        return "Roadm: [%s, %s, %d, %s, %s, %s, %d, %s]" %\
+        return "Roadm: [%s, %s, %d, %s, %s, %s, %s, %s]" %\
                (self.slice_name, self.resource_name, self.allocation,
                 str(self.modified_time), str(self.end_time),
                 self.client_name, self.client_id, self.client_email,)
