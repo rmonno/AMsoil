@@ -25,6 +25,9 @@ roadm = sqla.Table('roadm', meta,
                    sqla.Column('allocation', sqla.Integer, default=ALLOCATION.FREE),
                    sqla.Column('modified_time', sqla.DateTime, default=datetime.now),
                    sqla.Column('end_time', sqla.DateTime, default=datetime.now),
+                   sqla.Column('client_name', sqla.String, default=''),
+                   sqla.Column('client_id', sqla.String, default=''),
+                   sqla.Column('client_email', sqla.String, default=''),
                   )
 
 class Roadm(object):
@@ -33,9 +36,10 @@ class Roadm(object):
         self.resource_name = rname
 
     def __repr__(self):
-        return "Roadm: [%s, %s, %d, %s, %s]" %\
+        return "Roadm: [%s, %s, %d, %s, %s, %s, %s, %s]" %\
                (self.slice_name, self.resource_name, self.allocation,
-                str(self.modified_time), str(self.end_time),)
+                str(self.modified_time), str(self.end_time),
+                self.client_name, self.client_id, self.client_email,)
 
     def available(self):
         return (True if (self.allocation == ALLOCATION.FREE) else False)

@@ -118,7 +118,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
                 rs_.extend(rs_slice_)
 
             elif self.urn_type(u_) == 'sliver':
-                r_ = self._resource_manager.get_resources(resource_id=u_)
+                r_ = self._resource_manager.get_resources(resource_name=u_)
                 rs_.append(r_)
 
             else:
@@ -149,43 +149,40 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
         logger.debug("client_urn=%s, client_uuid=%s, client_email=%s" % (str(c_urn_), str(c_uuid_), str(c_email_),))
 
-        if end_time != None:
-            raise geni_ex.GENIv3OperationUnsupportedError('Reservation timeout NOT suppoted yet!')
-
-        logger.info("Slice URN=%s" % (slice_urn,))
-        # parse RSpec -> resource type and name
-        resources = []
-        root_ = self.lxml_parse_rspec(rspec)
-        logger.info("<<<<<<<<<<<<<<<<<<<<<<<<<<")
-
-        for em in root_.getchildren():
-            logger.error("xxxxxxxxxxxxxxxxx %s" % (str(em),))
-
+        roadms_ = []
+        for em in self.lxml_parse_rspec(rspec).getchildren():
             if not self.lxml_elm_has_request_prefix(em, 'opennaas'):
-                raise geni_ex.GENIv3BadArgsError("Unknown RSpec prefix (%s)." % (em,))
+                raise geni_ex.GENIv3BadArgsError("Only `opennaas` RSpec prefix is supported!")
 
-            #if (self.lxml_elm_equals_request_tag(em, 'dhcp', 'ip')):
-            #    requested_ips.append(elm.text.strip())
-            #elif (self.lxml_elm_equals_request_tag(elm, 'dhcp', 'iprange')):
-            #    pass
-                # raise geni_ex.GENIv3GeneralError('IP ranges in RSpecs are not supported yet.') # TODO
-            #else:
-            #    raise geni_ex.GENIv3BadArgsError("RSpec contains an element I dont understand (%s)." % (elm,))
+            if not self.lxml_elm_equals_request_tag(em, 'opennaas', 'roadm'):
+                raise geni_ex.GENIv3BadArgsError("Only `roadm` RSpec tag is supported!")
 
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
-        reserved_leases = []
-        for rip in requested_ips:
-            try:
-                reserved_leases.append(self._resource_manager.reserve_lease(rip, slice_urn, client_uuid, client_email, end_time))
-            except dhcp_ex.DHCPLeaseNotFound as e: # translate the resource manager exceptions to GENI exceptions
-                raise geni_ex.GENIv3SearchFailedError("The desired IP(s) could no be found (%s)." % (rip,))
-            except dhcp_ex.DHCPLeaseAlreadyTaken as e:
-                raise geni_ex.GENIv3AlreadyExistsError("The desired IP(s) is already taken (%s)." % (rip,))
+            roadms_.append(em.text.strip())
 
-        # assemble sliver list
-        sliver_list = [self._get_sliver_status_hash(lease, True, True, "") for lease in reserved_leases]
-        return self.lxml_to_string(self._get_manifest_rspec(reserved_leases)), sliver_list
+        rs_ = []
+        try: # only a complete resources reservation is allowed
+            logger.debug("Roadm resources=%s" % str(roadms_))
+            rs_ = self._resource_manager.reserve_resources(resources_name=roadms_,
+                                                           slice_name=slice_urn,
+                                                           end_time=end_time,
+                                                           client_name=c_urn_,
+                                                           client_id=c_uuid_,
+                                                           client_mail=c_email_)
+        except ons_ex.ONSResourceNotFound as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3SearchFailedError(str(e))
 
+        except ons_ex.ONSResourceNotAvailable as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3AlreadyExistsError(str(e))
+
+        except ons_ex.ONSException as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3GeneralError(str(e))
+
+        slivers_ = [self.__format_sliver_status(r, True) for r in rs_]
+        slice_urn_ = self.lxml_to_string(self.__format_manifest_rspec(rs_))
+        return (slice_urn_, slivers_)
 
     @enter_method_log
     def renew(self, urns, client_cert, credentials, expiration_time, best_effort):
@@ -305,7 +302,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     def __format_sliver_status(self, resource, allocation=False, operational=False, error=None):
         status_ = {'geni_sliver_urn' : resource.resource_name,
-                   'geni_expires'    : str(resource.end_time)}
+                   'geni_expires'    : resource.end_time}
 
         if allocation:
             status_['geni_allocation_status'] = self.__convert_allocation_2geni(resource.allocation)
