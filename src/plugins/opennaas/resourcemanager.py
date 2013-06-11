@@ -44,14 +44,52 @@ class RMInterface(object):
     @abstractmethod
     def reserve_resources(self, resources_name, slice_name, end_time=None,
                           client_name="", client_id="", client_mail=""):
-        """ Reserve resource
+        """ Reserve resources
         :param resources_name: the name of the resources
         :param slice_name: the name of the slice
         :param end_time: end time of reservation
         :param client_name: client name
         :param client_id: client identifier
         :param client_mail: client email
-        :return: Resource type
+        :return: list of Resources type
+        """
+        pass
+
+    @abstractmethod
+    def renew_resources(self, resources, slices, end_time):
+        """ Renew resources (throw exception if any check fails)
+        :param resources: dict with resource name (key) and client information
+        :param slices: dict with slice name (key) and client information
+        :param end_time: end time of reservation
+        :return: list of Resources type
+        """
+        pass
+
+    @abstractmethod
+    def force_renew_resources(self, resources, slices, end_time):
+        """ Renew resources (skips all checks)
+        :param resources: dict with resource name (key) and client information
+        :param slices: dict with slice name (key) and client information
+        :param end_time: end time of reservation
+        :return: list of Resources type
+        """
+        pass
+
+    @abstractmethod
+    def delete_resources(self, resources, slices):
+        """ Delete resources (throw exception if any check fails)
+        :param resources: dict with resource name (key) and client information
+        :param slices: dict with slice name (key) and client information
+        :return: list of Resources type
+        """
+        pass
+
+    @abstractmethod
+    def force_delete_resources(self, resources, slices):
+        """ Delete resources (skips all checks)
+        :param resources: dict with resource name (key) and client information
+        :param slices: dict with slice name (key) and client information
+        :return: list of Resources type
         """
         pass
 
@@ -115,6 +153,7 @@ class RMRoadmManager(RMInterface):
 
         try:
             values = {'end_time': end_time,
+                      'modified_time': dt.datetime.now(),
                       'allocation': ons_models.ALLOCATION.ALLOCATED,
                       'client_name': client_name,
                       'client_id': client_id,
@@ -131,6 +170,69 @@ class RMRoadmManager(RMInterface):
             raise ons_ex.ONSException(str(e))
 
         return rs_
+
+    @serviceinterface
+    def renew_resources(self, resources, slices, end_time):
+        raise ons_ex.ONSException("renew_resources: NOT implemented yet!")
+
+    @serviceinterface
+    def force_renew_resources(self, resources, slices, end_time):
+        s_ = sessionmaker(bind=ons_models.engine)()
+        values = {'end_time': end_time,
+                  'modified_time': dt.datetime.now()}
+        rs_ = []
+
+        for res_ in resources:
+            try:
+                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).all())
+
+                stmt = ons_models.roadm.update().where(sqla.and_(ons_models.Roadm.resource_name == res_)).values(values)
+                s_.execute(stmt)
+                s_.commit()
+
+            except sqla.exc.SQLAlchemyError as e:
+                logger.warning(str(e))
+
+        for sli_ in slices:
+            try:
+                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).all())
+
+                stmt = ons_models.roadm.update().where(sqla.and_(ons_models.Roadm.slice_name == sli_)).values(values)
+                s_.execute(stmt)
+                s_.commit()
+
+            except sqla.exc.SQLAlchemyError as e:
+                logger.warning(str(e))
+
+        logger.debug("force_renew_resources=%s" % (rs_,))
+        return rs_
+
+    @serviceinterface
+    def delete_resources(self, resources, slices):
+        s_ = sessionmaker(bind=ons_models.engine)()
+        rs_ = []
+
+        try:
+            for res_ in resources:
+                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).all())
+                s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).delete()
+
+            for sli_ in slices:
+                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).all())
+                s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).delete()
+
+            s_.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            s_.rollback()
+            raise ons_ex.ONSException(str(e))
+
+        logger.debug("delete_resources=%s" % (rs_,))
+        return rs_
+
+    @serviceinterface
+    def force_delete_resources(self, resources, slices):
+        raise ons_ex.ONSException("force_delete_resources: NOT implemented yet!")
 
 
 class RMTests:

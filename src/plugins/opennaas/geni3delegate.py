@@ -191,7 +191,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
           'geni_allocation_status'  : one of the ALLOCATION_STATE_xxx,
           'geni_operational_status' : one of the OPERATIONAL_STATE_xxx,
           'geni_expires'            : Python-Date,
-          'geni_error'              : optional String}, 
+          'geni_error'              : optional String},
         ...]
 
         {urns} contains a list of slice identifiers (e.g. ['urn:publicid:IDN+ofelia:eict:gcf+slice+myslice']).
@@ -203,7 +203,31 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
         For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Renew
         """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'renewsliver', 'renewsliver')
+
+        rs_ = []
+        try:
+            logger.debug("Best=%s, Slices=%s, Slivers=%s" % (best_effort, slices_, slivers_,))
+            if best_effort == False: # all included slivers to be renewed or none
+                rs_ = self._resource_manager.renew_resources(resources=slivers_,
+                                                             slices=slices_,
+                                                             end_time=expiration_time)
+            else: # partial success if possible
+                rs_ = self._resource_manager.force_renew_resources(resources=slivers_,
+                                                                   slices=slices_,
+                                                                   end_time=expiration_time)
+        except ons_ex.ONSResourceNotFound as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3SearchFailedError(str(e))
+
+        except ons_ex.ONSException as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3GeneralError(str(e))
+
+        if (not len(rs_)) and (best_effort == False):
+            raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
+
+        return [self.__format_sliver_status(r, True) for r in rs_]
 
     @enter_method_log
     def provision(self, urns, client_cert, credentials, best_effort, end_time, geni_users):
@@ -268,7 +292,29 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
         For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#Delete
         """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'deleteslice', 'deletesliver')
+
+        rs_ = []
+        try:
+            logger.debug("Best=%s, Slices=%s, Slivers=%s" % (best_effort, slices_, slivers_,))
+            if best_effort == False: # all included slivers to be renewed or none
+                rs_ = self._resource_manager.delete_resources(resources=slivers_,
+                                                              slices=slices_)
+            else: # partial success if possible
+                rs_ = self._resource_manager.force_delete_resources(resources=slivers_,
+                                                                    slices=slices_)
+        except ons_ex.ONSResourceNotFound as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3SearchFailedError(str(e))
+
+        except ons_ex.ONSException as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3GeneralError(str(e))
+
+        if (not len(rs_)) and (best_effort == False):
+            raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
+
+        return [self.__format_sliver_status(r, True) for r in rs_]
 
     @enter_method_log
     def shutdown(self, slice_urn, client_cert, credentials):
@@ -332,3 +378,18 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             manifest_.append(r)
 
         return manifest_
+
+    def __get_slices_slivers_from_urns(self, urns, cert, credentials, slice_op, sliver_op):
+        (slices_, slivers_) = ({}, {})
+        for u_ in urns:
+            urn_type_ = self.urn_type(u_)
+            if urn_type_ == 'slice':
+                slices_[u_] = self.__authenticate(cert, credentials, u_, (slice_op,))
+
+            elif urn_type_ == 'sliver':
+                slivers_[u_] = self.__authenticate(cert, credentials, u_, (sliver_op,))
+
+            else:
+                raise geni_ex.GENIv3OperationUnsupportedError('Bad URN type (%s)' % (urn_type_,))
+
+        return (slices_, slivers_)
