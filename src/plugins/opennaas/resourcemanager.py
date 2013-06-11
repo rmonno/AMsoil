@@ -7,6 +7,7 @@ from amsoil.core import serviceinterface
 ons_ex = pm.getService('opennaas_exceptions')
 ons_models = pm.getService('opennaas_models')
 config = pm.getService("config")
+worker = pm.getService('worker')
 
 from abc import ABCMeta, abstractmethod
 import datetime as dt
@@ -99,9 +100,21 @@ class RMRoadmManager(RMInterface):
     def __init__(self):
         super(RMRoadmManager, self).__init__()
         ons_models.meta.create_all()
+        worker.addAsReccurring('opennaas_resourcemanager', 'update_resources',
+                               None, config.get("opennaas.update_timeout"))
+        worker.addAsReccurring('opennaas_resourcemanager', 'check_resources_expiration',
+                               None, config.get("opennaas.check_expire_timeout"))
         logger.debug("Init openNaas ROADM resource manager")
 
         if config.get("opennaas.tests"): RMTests()
+
+    @worker.outsideprocess
+    def update_resources(self, params):
+        logger.debug("update resources: %s" % (params,))
+
+    @worker.outsideprocess
+    def check_resources_expiration(self, params):
+        logger.debug("check resources expiration: %s" % (params,))
 
     @serviceinterface
     def get_resources(self, slice_name=None, resource_name=None):
