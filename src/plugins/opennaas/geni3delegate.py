@@ -31,35 +31,30 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             return f(*args, **kwargs)
         return wrapper
 
-    @enter_method_log
     def get_request_extensions_mapping(self):
         """Should return a dict of namespace names and request extensions (XSD schema's URLs as string).
         Format: {xml_namespace_prefix : namespace_uri, ...}
         """
-        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
+        return {self.NAMESPACE_PREFIX: self.NAMESPACE_URI}
 
-    @enter_method_log
     def get_manifest_extensions_mapping(self):
         """Should return a dict of namespace names and manifest extensions (XSD schema's URLs as string).
         Format: {xml_namespace_prefix : namespace_uri, ...}
         """
-        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
+        return {self.NAMESPACE_PREFIX: self.NAMESPACE_URI}
 
-    @enter_method_log
     def get_ad_extensions_mapping(self):
         """Should return a dict of namespace names and advertisement extensions (XSD schema URLs as string) to be sent back by GetVersion.
         Format: {xml_namespace_prefix : namespace_uri, ...}
         """
-        return {OpenNaasGENI3Delegate.NAMESPACE_PREFIX: OpenNaasGENI3Delegate.NAMESPACE_URI}
+        return {self.NAMESPACE_PREFIX: self.NAMESPACE_URI}
 
-    @enter_method_log
     def is_single_allocation(self):
         """Shall return a True or False. When True (not default), and performing one of (Describe, Allocate, Renew, Provision, Delete),
         such an AM requires you to include either the slice urn or the urn of all the slivers in the same state.
         """
         return True
 
-    @enter_method_log
     def get_allocation_mode(self):
         """Shall return a either 'geni_single', 'geni_disjoint', 'geni_many'.
         It defines whether this AM allows adding slivers to slices at an AM (i.e. calling Allocate multiple times,
@@ -149,20 +144,21 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
         logger.debug("client_urn=%s, client_uuid=%s, client_email=%s" % (str(c_urn_), str(c_uuid_), str(c_email_),))
 
-        roadms_ = []
+        resources_ = []
         for em in self.lxml_parse_rspec(rspec).getchildren():
-            if not self.lxml_elm_has_request_prefix(em, 'opennaas'):
-                raise geni_ex.GENIv3BadArgsError("Only `opennaas` RSpec prefix is supported!")
+            r_ = {}
+            self.__verify_resource_tag(em)
+            (r_['gen'], em_spec_) = self.__extract_gen_resource_info(em.getchildren())
 
-            if not self.lxml_elm_equals_request_tag(em, 'opennaas', 'roadm'):
-                raise geni_ex.GENIv3BadArgsError("Only `roadm` RSpec tag is supported!")
+            if r_['gen']['type'] == 'roadm':
+                r_['spec'] = self.__extract_roadm_conn_info(em_spec_)
 
-            roadms_.append(em.text.strip())
+            resources_.append(r_)
 
         rs_ = []
-        try: # only a complete resources reservation is allowed
-            logger.debug("Roadm resources=%s" % str(roadms_))
-            rs_ = self._resource_manager.reserve_resources(resources_name=roadms_,
+        try:
+            logger.debug("Resources=%s" % str(resources_))
+            rs_ = self._resource_manager.reserve_resources(resources=resources_,
                                                            slice_name=slice_urn,
                                                            end_time=end_time,
                                                            client_name=str(c_urn_),
@@ -179,6 +175,8 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         except ons_ex.ONSException as e:
             logger.error(str(e))
             raise geni_ex.GENIv3GeneralError(str(e))
+
+        logger.debug("Reserved=%s" % str(rs_))
 
         slivers_ = [self.__format_sliver_status(r, True) for r in rs_]
         slice_urn_ = self.lxml_to_string(self.__format_manifest_rspec(rs_))
@@ -347,8 +345,8 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         raise geni_ex.GENIv3GeneralError("Unknown operational state!")
 
     def __format_sliver_status(self, resource, allocation=False, operational=False, error=None):
-        status_ = {'geni_sliver_urn' : resource.resource_name,
-                   'geni_expires'    : resource.end_time}
+        status_ = {'geni_sliver_urn': resource.urn,
+                   'geni_expires'   : resource.end_time}
 
         if allocation:
             status_['geni_allocation_status'] = self.__convert_allocation_2geni(resource.allocation)
@@ -363,16 +361,14 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     def __format_manifest_rspec(self, resources):
         manifest_ = self.lxml_manifest_root()
-        em_ = self.lxml_manifest_element_maker(OpenNaasGENI3Delegate.NAMESPACE_PREFIX)
+        em_ = self.lxml_manifest_element_maker(self.NAMESPACE_PREFIX)
 
         for resource in resources:
             r = em_.resource()
-            r.append(em_.type(resource.type()))
-            r.append(em_.slice(resource.slice_name))
-            r.append(em_.name(resource.resource_name))
+            r.append(em_.type(resource.type))
+            r.append(em_.slice(resource.slice_urn))
+            r.append(em_.name(resource.urn))
             r.append(em_.available('True' if resource.available() else 'False'))
-            r.append(em_.allocation_state(resource.state()))
-            r.append(em_.modified(str(resource.modified_time)))
             r.append(em_.end(str(resource.end_time)))
 
             manifest_.append(r)
@@ -393,3 +389,42 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
                 raise geni_ex.GENIv3OperationUnsupportedError('Bad URN type (%s)' % (urn_type_,))
 
         return (slices_, slivers_)
+
+    def __verify_resource_tag(self, xml_elem):
+        if not self.lxml_elm_has_request_prefix(xml_elem, 'opennaas'):
+            raise geni_ex.GENIv3BadArgsError("Only `opennaas` RSpec prefix is supported!")
+
+        if not self.lxml_elm_equals_request_tag(xml_elem, 'opennaas', 'resource'):
+            raise geni_ex.GENIv3BadArgsError("Only `resource` RSpec tag is supported!")
+
+    def __extract_gen_resource_info(self, xml_resource_descr):
+        info_ = {}
+        child_ = None
+        for i in xml_resource_descr:
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'name'):
+                info_['name'] = i.text.strip()
+
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'type'):
+                info_['type'] = i.text.strip()
+
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'roadm'):
+                child_ = i.getchildren()
+
+        return (info_, child_)
+
+    def __extract_roadm_conn_info(self, xml_connection_descr):
+        info_ = {}
+        for i in xml_connection_descr:
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'in_endpoint'):
+                info_['in_endpoint'] = i.text.strip()
+
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'in_label'):
+                info_['in_label'] = i.text.strip()
+
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'out_endpoint'):
+                info_['out_endpoint'] = i.text.strip()
+
+            if self.lxml_elm_equals_request_tag(i, 'opennaas', 'out_label'):
+                info_['out_label'] = i.text.strip()
+
+        return info_

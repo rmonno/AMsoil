@@ -2,7 +2,8 @@ import amsoil.core.pluginmanager as pm
 from datetime import datetime
 
 import sqlalchemy as sqla
-from sqlalchemy.orm import mapper
+from sqlalchemy import event
+from sqlalchemy.orm import mapper, sessionmaker
 
 """
 OpenNaas Data Models.
@@ -12,6 +13,12 @@ engine = sqla.create_engine('sqlite:///' + config.get("opennaas.db_dir") + '/ope
                             echo=config.get("opennaas.db_dump_stat"))
 meta = sqla.MetaData(bind=engine)
 
+@event.listens_for(sqla.engine.Engine, 'connect')
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 
 class ALLOCATION:
     FREE, ALLOCATED, PROVISIONED = range(3)
@@ -19,40 +26,163 @@ class ALLOCATION:
 class OPERATIONAL:
     FAILED = range(1)
 
-roadm = sqla.Table('roadm', meta,
-                   sqla.Column('slice_name', sqla.String, primary_key=True),
-                   sqla.Column('resource_name', sqla.String, primary_key=True),
-                   sqla.Column('allocation', sqla.Integer, default=ALLOCATION.FREE),
-                   sqla.Column('modified_time', sqla.DateTime, default=datetime.now),
-                   sqla.Column('end_time', sqla.DateTime, default=datetime.now),
-                   sqla.Column('client_name', sqla.String, default=''),
-                   sqla.Column('client_id', sqla.String, default=''),
-                   sqla.Column('client_email', sqla.String, default=''),
-                  )
 
-class Roadm(object):
-    def __init__(self, sname, rname):
-        self.slice_name = sname
-        self.resource_name = rname
+resources = sqla.Table('Resources', meta,
+                       sqla.Column('id', sqla.Integer, primary_key=True, autoincrement=True),
+                       sqla.Column('name', sqla.String),
+                       sqla.Column('type', sqla.String),
+                       sqla.UniqueConstraint('name', 'type'),
+                      )
+
+roadms = sqla.Table('Roadms', meta,
+                    sqla.Column('id', sqla.Integer, primary_key=True, autoincrement=True),
+                    sqla.Column('resource_id', sqla.Integer),
+                    sqla.Column('endpoint', sqla.String),
+                    sqla.Column('label', sqla.String),
+                    sqla.Column('allocation', sqla.Integer, default=ALLOCATION.FREE),
+                    sqla.UniqueConstraint('endpoint', 'label', 'resource_id'),
+                    sqla.ForeignKeyConstraint(['resource_id'], ['Resources.id'],
+                                              onupdate="CASCADE", ondelete="CASCADE"),
+                   )
+
+connections = sqla.Table('RoadmsConnections', meta,
+                         sqla.Column('ingress', sqla.Integer, primary_key=True, unique=True),
+                         sqla.Column('egress', sqla.Integer, primary_key=True, unique=True),
+                         sqla.Column('slice_urn', sqla.String, nullable=False),
+                         sqla.Column('end_time', sqla.DateTime, default=datetime.now),
+                         sqla.Column('client_name', sqla.String, default=''),
+                         sqla.Column('client_id', sqla.String, default=''),
+                         sqla.Column('client_email', sqla.String, default=''),
+                         sqla.ForeignKeyConstraint(['ingress'], ['Roadms.id'],
+                                                   onupdate="CASCADE", ondelete="CASCADE"),
+                         sqla.ForeignKeyConstraint(['egress'], ['Roadms.id'],
+                                                   onupdate="CASCADE", ondelete="CASCADE"),
+                        )
+
+
+class Resources(object):
+    def __init__(self, rname, rtype):
+        self.name = rname
+        self.type = rtype
 
     def __repr__(self):
-        return "Roadm: [%s, %s, %d, %s, %s, %s, %s, %s]" %\
-               (self.slice_name, self.resource_name, self.allocation,
-                str(self.modified_time), str(self.end_time),
-                self.client_name, self.client_id, self.client_email,)
+        return "(id=%d, name=%s, type=%s)" % (self.id, self.name, self.type,)
+
+class Roadms(object):
+    def __init__(self, rid, rep, rlabel):
+        self.resource_id = rid
+        self.endpoint = rep
+        self.label = rlabel
+
+    def __repr__(self):
+        return "(id=%d, resource-id=%d, endpoint=%s, label=%s, alloc=%d)" %\
+               (self.id, self.resource_id, self.endpoint, self.label, self.allocation,)
+
+class RoadmsConns(object):
+    def __init__(self, ingress, egress, slice_urn):
+        self.ingress = ingress
+        self.egress = egress
+        self.slice_urn = slice_urn
+
+    def __repr__(self):
+        return "(ingress=%d, egress=%d, end_time=%s, slice=%s, client_name%s, client_id=%s, client_email=%s)" %\
+               (self.ingress, self.egress, self.slice_urn, str(self.end_time),
+                self.client_name, self.client_id, self.client_email)
+
+
+mapper(Resources, resources)
+mapper(Roadms, roadms)
+mapper(RoadmsConns, connections)
+
+
+class RoadmsDBM(object):
+    ons_ex = pm.getService('opennaas_exceptions')
+
+    def __init__(self):
+        self.__s = None
+
+    def create_all(self):
+        try:
+            meta.create_all()
+            return (True, None)
+
+        except sqla.exc.SQLAlchemyError as e:
+            return (False, str(e))
+
+    def open_session(self):
+        if self.__s:
+            raise self.ons_ex.ONSException('Session already opened!')
+
+        self.__s = sessionmaker(bind=engine)()
+
+    def close_session(self):
+        if self.__s:
+            self.__s.close()
+
+        self.__s = None
+
+    def check_to_reserve(self, resource, roadm):
+        try:
+            re_ = self.__s.query(Resources).filter(sqla.and_(Resources.name == resource['name'],
+                                                             Resources.type == resource['type'])).one()
+
+            rin_ = self.__s.query(Roadms).filter(sqla.and_(Roadms.resource_id == re_.id,
+                                                           Roadms.endpoint == roadm['in_endpoint'],
+                                                           Roadms.label == roadm['in_label'])).one()
+            if rin_.allocation != ALLOCATION.FREE:
+                raise self.ons_ex.ONSResourceNotAvailable('Ingress not available (id=%s, ep=%s, lab=%s)' %\
+                                                          (re_.id, roadm['in_endpoint'], roadm['in_label'],))
+
+            rout_ = self.__s.query(Roadms).filter(sqla.and_(Roadms.resource_id == re_.id,
+                                                            Roadms.endpoint == roadm['out_endpoint'],
+                                                            Roadms.label == roadm['out_label'])).one()
+            if rout_.allocation != ALLOCATION.FREE:
+                raise self.ons_ex.ONSResourceNotAvailable('Egress not available (id=%s, ep=%s, lab=%s)' %\
+                                                          (re_.id, roadm['out_endpoint'], roadm['out_label'],))
+
+            return (rin_.id, rout_.id)
+
+        except sqla.exc.SQLAlchemyError as e:
+            raise self.ons_ex.ONSResourceNotFound(str(e))
+
+    def make_connection(self, ingress, egress, values):
+        try:
+            stmt_ = connections.insert().values(ingress=ingress, egress=egress, slice_urn=values['slice_name'],
+                                                end_time=values['end_time'], client_name=values['client_name'],
+                                                client_id=values['client_id'],client_email=values['client_email'])
+            self.__s.execute(stmt_)
+
+            stmt_ = roadms.update().where(roadms.c.id==ingress).values(allocation=ALLOCATION.ALLOCATED)
+            self.__s.execute(stmt_)
+
+            stmt_ = roadms.update().where(roadms.c.id==egress).values(allocation=ALLOCATION.ALLOCATED)
+            self.__s.execute(stmt_)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+
+roadmsDBM = RoadmsDBM()
+
+
+def create_roadm_urn(name, endpoint, label):
+    return name + ':' + endpoint + ':' + label
+
+class GeniResource(object):
+    def __init__(self, urn, slice_urn, end_time, type_, allocation):
+        self.urn = urn
+        self.end_time = end_time
+        self.slice_urn = slice_urn
+        self.type = type_
+        self.allocation = allocation
+
+    def __repr__(self):
+        return "(urn=%s, end-time=%s, slice=%s, type=%s, alloc=%s)" %\
+               (self.urn, str(self.end_time), self.slice_urn, self.type,
+                self.allocation,)
 
     def available(self):
-        return (True if (self.allocation == ALLOCATION.FREE) else False)
-
-    def type(self):
-        return 'roadm'
-
-    def state(self):
-        if self.allocation == ALLOCATION.FREE:
-            return 'free'
-        elif self.allocation == ALLOCATION.ALLOCATED:
-            return 'allocated'
-        else:
-            return 'provisioned'
-
-mapper(Roadm, roadm)
+        return True if self.allocation == ALLOCATION.FREE else False

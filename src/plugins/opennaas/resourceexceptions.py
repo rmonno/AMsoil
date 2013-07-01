@@ -13,12 +13,12 @@ class ONSException(CoreException):
 
 
 class ONSResourceNotFound(ONSException):
-    def __init__(self, slice_name, resource_name):
-        super(ONSResourceNotFound, self).__init__("Resource NOT found (slice=%s, resource=%s)" %
-                                                  (slice_name, resource_name,))
+    def __init__(self, error):
+        super(ONSResourceNotFound, self).__init__("ResourceNotFound [error=%s]" %
+                                                  (error,))
 
 
 class ONSResourceNotAvailable(ONSException):
-    def __init__(self, slice_name, resource_name):
-        super(ONSResourceNotAvailable, self).__init__("Resource NOT available (slice=%s, resource=%s)" %
-                                                      (slice_name, resource_name,))
+    def __init__(self, error):
+        super(ONSResourceNotAvailable, self).__init__("ResourceNotAvailable [error=%s]" %
+                                                      (error,))
