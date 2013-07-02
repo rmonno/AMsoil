@@ -12,7 +12,6 @@ worker = pm.getService('worker')
 from abc import ABCMeta, abstractmethod
 import datetime as dt
 import sqlalchemy as sqla
-import sqlalchemy.orm.exc as sqla_ex
 from sqlalchemy.orm import sessionmaker
 import urllib2
 
@@ -34,11 +33,9 @@ class RMInterface(object):
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def get_resources(self, slice_name=None, resource_name=None):
+    def get_resources(self):
         """ Get all managed resources
-        :param slice_name: the name of the slice (optional)
-        :param resource_name: the resource name (optional)
-        :return: list of Resources type
+        :return: list of GeniResources
         """
         pass
 
@@ -111,12 +108,25 @@ class RMRoadmManager(RMInterface):
 
         if config.get("opennaas.tests"): RMTests()
 
-    def create_geni_resources(self, gen, spec, slice_name, end_time, alloc):
-        in_urn = ons_models.create_roadm_urn(gen['name'], spec['in_endpoint'], spec['in_label'])
-        out_urn = ons_models.create_roadm_urn(gen['name'], spec['out_endpoint'], spec['out_label'])
+    def __create_manifest(self, resources, sname, endt, alloc):
+        ret_ = []
+        for r in resources:
+            in_urn = ons_models.create_roadm_urn(r['gen']['name'],
+                                                 r['spec']['in_endpoint'],
+                                                 r['spec']['in_label'])
+            out_urn = ons_models.create_roadm_urn(r['gen']['name'],
+                                                  r['spec']['out_endpoint'],
+                                                  r['spec']['out_label'])
 
-        return [ons_models.GeniResource(in_urn, slice_name, end_time, gen['type'], alloc),
-                ons_models.GeniResource(out_urn, slice_name, end_time, gen['type'], alloc)]
+            ret_.append(ons_models.GeniResource(in_urn, sname, endt, r['gen']['type'], alloc))
+            ret_.append(ons_models.GeniResource(out_urn, sname, endt, r['gen']['type'], alloc))
+
+        return ret_
+
+    def create_geni_resource(self, resource_name, endpoint, label,
+                             slice_name, end_time, resource_type, allocation):
+        urn_ = ons_models.create_roadm_urn(resource_name, endpoint, label)
+        return ons_models.GeniResource(urn_, slice_name, end_time, resource_type, allocation)
 
     @worker.outsideprocess
     def update_resources(self, params):
@@ -127,25 +137,15 @@ class RMRoadmManager(RMInterface):
         logger.debug("check resources expiration: %s" % (params,))
 
     @serviceinterface
-    def get_resources(self, slice_name=None, resource_name=None):
-        s_ = sessionmaker(bind=ons_models.engine)()
+    def get_resources(self):
+        try:
+            ons_models.roadmsDBM.open_session()
+            rs_ = ons_models.roadmsDBM.get_resources()
 
-        if (slice_name is not None) and (resource_name is not None):
-            logger.debug("get_resources: slice_name=%s, resource_name=%s" % (slice_name, resource_name,))
-            return s_.query(ons_models.Roadm).filter(sqla.and_(ons_models.Roadm.slice_name == slice_name,
-                                                               ons_models.Roadm.resource_name == resource_name)).one()
-
-        elif (slice_name is not None):
-            logger.debug("get_resources: slice_name=%s" % (slice_name,))
-            return s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == slice_name).all()
-
-        elif (resource_name is not None):
-            logger.debug("get_resources: resource_name=%s" % (resource_name,))
-            return s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == resource_name).all()
-
-        else:
-            logger.debug("get_resources")
-            return s_.query(ons_models.Roadm).all()
+            return [self.create_geni_resource(rname, ep, lb, sname, endt, rtype, alloc)
+                    for (rname, ep, lb, sname, endt, rtype, alloc) in rs_]
+        finally:
+            ons_models.roadmsDBM.close_session()
 
     @serviceinterface
     def reserve_resources(self, resources, slice_name, end_time=None,
@@ -170,13 +170,7 @@ class RMRoadmManager(RMInterface):
             for ingress_id, egress_id in conns_:
                 ons_models.roadmsDBM.make_connection(ingress_id, egress_id, values)
 
-            ret_ = []
-            for r in resources:
-                in_out = self.create_geni_resources(r['gen'], r['spec'], slice_name, end_time,
-                                                    ons_models.ALLOCATION.ALLOCATED)
-                ret_.extend(in_out)
-
-            return ret_
+            return self.__create_manifest(resources, slice_name, end_time, ons_models.ALLOCATION.ALLOCATED)
 
         finally:
             ons_models.roadmsDBM.close_session()

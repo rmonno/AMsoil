@@ -164,12 +164,39 @@ class RoadmsDBM(object):
             self.__s.rollback()
             raise self.ons_ex.ONSException(str(e))
 
+    def get_resources(self):
+        try:
+            rall_ = self.__s.query(Resources.name, Resources.type, Roadms.endpoint,
+                                   Roadms.label, Roadms.allocation, Roadms.id).\
+                             join(Roadms, Resources.id==Roadms.resource_id).all()
+            ret_ = []
+            for r_ in rall_:
+                if r_.allocation != ALLOCATION.FREE:
+                    conn_ = self.__s.query(RoadmsConns).filter(sqla.or_(RoadmsConns.ingress == r_.id,
+                                                                        RoadmsConns.egress == r_.id)).one()
+
+                    ret_.append((r_.name, r_.endpoint, r_.label, conn_.slice_urn, conn_.end_time,\
+                                 r_.type, r_.allocation))
+                else:
+                    ret_.append((r_.name, r_.endpoint, r_.label, None, None,\
+                                 r_.type, r_.allocation))
+
+            return ret_
+
+        except sqla.exc.SQLAlchemyError as e:
+            raise self.ons_ex.ONSException(str(e))
+
 
 roadmsDBM = RoadmsDBM()
 
 
 def create_roadm_urn(name, endpoint, label):
     return name + ':' + endpoint + ':' + label
+
+def decode_roadm_urn(resource_urn):
+    ret_ = resource_urn.split(':', 3)
+    return (ret_[0], ret_[1], ret_[2])
+
 
 class GeniResource(object):
     def __init__(self, urn, slice_urn, end_time, type_, allocation):

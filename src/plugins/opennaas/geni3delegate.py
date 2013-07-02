@@ -70,15 +70,23 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         self.__authenticate(client_cert, credentials, None, ('listslices',))
 
         rn_ = self.lxml_ad_root()
-        em_ = self.lxml_ad_element_maker(OpenNaasGENI3Delegate.NAMESPACE_PREFIX)
+        em_ = self.lxml_ad_element_maker(self.NAMESPACE_PREFIX)
 
         for r in self._resource_manager.get_resources():
+            logger.debug("Resource=%s" % (r,))
             if geni_available and not r.available(): continue
 
             res_ = em_.resource()
-            res_.append(em_.type(r.type()))
-            res_.append(em_.slice(r.slice_name))
-            res_.append(em_.name(r.resource_name))
+            if r.type == 'roadm':
+                (name, endpoint, label) = ons_models.decode_roadm_urn(r.urn)
+                res_.append(em_.name(name))
+                res_.append(em_.type(r.type))
+                res_.append(em_.endpoint(endpoint))
+                res_.append(em_.label(label))
+            else:
+                res_.append(em_.name(r.urn))
+                res_.append(em_.type(r.type))
+
             res_.append(em_.available('True' if r.available() else 'False'))
 
             rn_.append(res_)
