@@ -13,22 +13,11 @@ from abc import ABCMeta, abstractmethod
 import datetime as dt
 import sqlalchemy as sqla
 from sqlalchemy.orm import sessionmaker
-import urllib2
+
 
 """
 OpenNaas Resource Manager.
 """
-def send_to(url, data):
-    try:
-        request = urllib2.Request(url, data)
-        request.add_header('Content-Type', 'application/xml')
-        response = urllib2.urlopen(request)
-        return response.read()
-
-    except urllib2.HTTPError as error:
-        raise ons_ex.ONSException(str(error))
-
-
 class RMInterface(object):
     __metaclass__ = ABCMeta
 
@@ -326,17 +315,8 @@ class RMTests:
         except Exception as e:
             logger.error("XXX DB XXX error: %s" % str(e))
 
-        try: # opennaas communication tests
-            url_ = 'http://' + config.get("opennaas.server_address") + ':' +\
-                   str(config.get("opennaas.server_port")) + '/opennaas/resources/create'
-            descr = open('/home/ofelia-cf/opennaas/utils/examples/descriptors/roadm.descriptor', 'r')
-            data = descr.read()
-
-            r = send_to(url_, data)
-            logger.debug("TESTs: Response=%s" % str(r))
-
-        except Exception as e:
-            logger.error("Tests error: %s" % str(e))
+        ons_comms = pm.getService('opennaas_commands')
+        ons_comms.commandsMngr.create()
 
     def secure_read(self, sess):
         try:

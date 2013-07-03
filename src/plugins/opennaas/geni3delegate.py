@@ -1,6 +1,6 @@
 import amsoil.core.pluginmanager as pm
 import amsoil.core.log
-logger=amsoil.core.log.getLogger('ons_geniv3delegate')
+logger=amsoil.core.log.getLogger('ons_delegate')
 
 GENIv3DelegateBase = pm.getService('geniv3delegatebase')
 geni_ex = pm.getService('geniv3exceptions')
