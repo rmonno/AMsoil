@@ -54,6 +54,14 @@ class RMInterface(object):
         pass
 
     @abstractmethod
+    def get_slice_resources(self, slice_name):
+        """ Get all managed resources
+        :param slice_name: the name of the slice
+        :return: list of GeniResources
+        """
+        pass
+
+    @abstractmethod
     def renew_resources(self, resources, slices, end_time):
         """ Renew resources (throw exception if any check fails)
         :param resources: dict with resource name (key) and client information
@@ -123,6 +131,28 @@ class RMRoadmManager(RMInterface):
 
         return ret_
 
+    def __create_detailed_manifest(self, resources):
+        ret_ = []
+        for (r_in, r_out, conns) in resources:
+            logger.debug("In=%s, Out=%s, Conns=%s" % (r_in, r_out, conns,))
+
+            in_urn = ons_models.create_roadm_urn(r_in.name, r_in.endpoint, r_in.label)
+            out_urn = ons_models.create_roadm_urn(r_out.name, r_out.endpoint, r_out.label)
+
+            geni_in_ = ons_models.GeniResource(in_urn, conns.slice_urn, conns.end_time,
+                                               r_in.type, r_in.allocation)
+            geni_in_.roadm_details(conns.client_name, conns.client_id, conns.client_email,
+                                   connected_out_urn=out_urn)
+            ret_.append(geni_in_)
+
+            geni_out_ = ons_models.GeniResource(out_urn, conns.slice_urn, conns.end_time,
+                                                r_in.type, r_in.allocation)
+            geni_out_.roadm_details(conns.client_name, conns.client_id, conns.client_email,
+                                    connected_in_urn=in_urn)
+            ret_.append(geni_out_)
+
+        return ret_
+
     def create_geni_resource(self, resource_name, endpoint, label,
                              slice_name, end_time, resource_type, allocation):
         urn_ = ons_models.create_roadm_urn(resource_name, endpoint, label)
@@ -171,6 +201,17 @@ class RMRoadmManager(RMInterface):
                 ons_models.roadmsDBM.make_connection(ingress_id, egress_id, values)
 
             return self.__create_manifest(resources, slice_name, end_time, ons_models.ALLOCATION.ALLOCATED)
+
+        finally:
+            ons_models.roadmsDBM.close_session()
+
+    @serviceinterface
+    def get_slice_resources(self, slice_name):
+        try:
+            ons_models.roadmsDBM.open_session()
+            rs_ = ons_models.roadmsDBM.get_slice(slice_name)
+
+            return self.__create_detailed_manifest(rs_)
 
         finally:
             ons_models.roadmsDBM.close_session()

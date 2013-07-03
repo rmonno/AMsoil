@@ -116,19 +116,16 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         rs_ = []
         for u_ in urns:
             self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
-            if self.urn_type(u_) == 'slice':
-                rs_slice_ = self._resource_manager.get_resources(slice_name=u_)
-                rs_.extend(rs_slice_)
+            if self.urn_type(u_) != 'slice':
+                raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
 
-            elif self.urn_type(u_) == 'sliver':
-                r_ = self._resource_manager.get_resources(resource_name=u_)
-                rs_.append(r_)
-
-            else:
-                raise geni_ex.GENIv3OperationUnsupportedError('Only slice or sliver URNs can be given to status in this aggregate')
+            rs_slice_ = self._resource_manager.get_slice_resources(slice_name=u_)
+            rs_.extend(rs_slice_)
 
         if not len(rs_):
             raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
+
+        logger.debug("Resources=%s" % (rs_,))
 
         slivers_ = [self.__format_sliver_status(r, True) for r in rs_]
         slice_urn_ = self.lxml_to_string(self.__format_manifest_rspec(rs_))
@@ -378,6 +375,17 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
             r.append(em_.name(resource.urn))
             r.append(em_.available('True' if resource.available() else 'False'))
             r.append(em_.end(str(resource.end_time)))
+
+            if (resource.type == 'roadm') and 'roadm' in resource.details:
+                r.append(em_.client(resource.details['roadm'].client))
+                r.append(em_.client_mail(resource.details['roadm'].client_mail))
+                r.append(em_.client_id(resource.details['roadm'].client_id))
+
+                if resource.details['roadm'].connected_in_urn:
+                    r.append(em_.to_ingress(resource.details['roadm'].connected_in_urn))
+
+                if resource.details['roadm'].connected_out_urn:
+                    r.append(em_.to_egress(resource.details['roadm'].connected_out_urn))
 
             manifest_.append(r)
 

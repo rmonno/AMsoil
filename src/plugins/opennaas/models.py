@@ -85,7 +85,7 @@ class RoadmsConns(object):
         self.slice_urn = slice_urn
 
     def __repr__(self):
-        return "(ingress=%d, egress=%d, end_time=%s, slice=%s, client_name%s, client_id=%s, client_email=%s)" %\
+        return "(ingress=%d, egress=%d, slice=%s, end_time=%s, client_name=%s, client_id=%s, client_email=%s)" %\
                (self.ingress, self.egress, self.slice_urn, str(self.end_time),
                 self.client_name, self.client_id, self.client_email)
 
@@ -186,6 +186,28 @@ class RoadmsDBM(object):
         except sqla.exc.SQLAlchemyError as e:
             raise self.ons_ex.ONSException(str(e))
 
+    def get_slice(self, slice_urn):
+        try:
+            rall_ = self.__s.query(RoadmsConns).filter(RoadmsConns.slice_urn == slice_urn).all()
+            ret_ = []
+            for r_ in rall_:
+                r_in_ = self.__s.query(Roadms.endpoint, Roadms.label, Roadms.allocation,
+                                       Resources.name, Resources.type).\
+                                 join(Resources, Roadms.resource_id==Resources.id).\
+                                 filter(Roadms.id == r_.ingress).one()
+
+                r_out_ = self.__s.query(Roadms.endpoint, Roadms.label, Roadms.allocation,
+                                        Resources.name, Resources.type).\
+                                  join(Resources, Roadms.resource_id==Resources.id).\
+                                  filter(Roadms.id == r_.egress).one()
+
+                ret_.append((r_in_, r_out_, r_))
+
+            return ret_
+
+        except sqla.exc.SQLAlchemyError as e:
+            raise self.ons_ex.ONSException(str(e))
+
 
 roadmsDBM = RoadmsDBM()
 
@@ -198,6 +220,20 @@ def decode_roadm_urn(resource_urn):
     return (ret_[0], ret_[1], ret_[2])
 
 
+class GeniRoadmDetails(object):
+    def __init__(self, client, client_id, client_mail,
+                 connected_in_urn=None, connected_out_urn=None):
+        self.client = client
+        self.client_id = client_id
+        self.client_mail = client_mail
+        self.connected_in_urn = connected_in_urn
+        self.connected_out_urn = connected_out_urn
+
+    def __repr__(self):
+        return "(client=%s, c_id=%s, c_mail=%s, conn_in_urn=%s, conn_out_urn=%s)" %\
+               (self.client, self.client_id, self.client_mail,
+                self.connected_in_urn, self.connected_out_urn)
+
 class GeniResource(object):
     def __init__(self, urn, slice_urn, end_time, type_, allocation):
         self.urn = urn
@@ -205,11 +241,16 @@ class GeniResource(object):
         self.slice_urn = slice_urn
         self.type = type_
         self.allocation = allocation
+        self.details = {}
 
     def __repr__(self):
-        return "(urn=%s, end-time=%s, slice=%s, type=%s, alloc=%s)" %\
+        return "(urn=%s, end-time=%s, slice=%s, type=%s, alloc=%s, details=%s)" %\
                (self.urn, str(self.end_time), self.slice_urn, self.type,
-                self.allocation,)
+                self.allocation, self.details)
 
     def available(self):
         return True if self.allocation == ALLOCATION.FREE else False
+
+    def roadm_details(self, c_name, c_id, c_mail, connected_in_urn=None, connected_out_urn=None):
+        self.details['roadm'] = GeniRoadmDetails(c_name, c_id, c_mail,
+                                                 connected_in_urn, connected_out_urn)
