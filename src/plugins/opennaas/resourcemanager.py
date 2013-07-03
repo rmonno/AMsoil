@@ -49,7 +49,7 @@ class RMInterface(object):
         :param client_name: client name
         :param client_id: client identifier
         :param client_mail: client email
-        :return: list of Resources type
+        :return: list of GeniResources
         """
         pass
 
@@ -66,7 +66,7 @@ class RMInterface(object):
         """ Renew resources (throw exception if any check fails)
         :param slices: dict with slice name (key) and client information
         :param end_time: end time of reservation
-        :return: list of Resources type
+        :return: list of GeniResources
         """
         pass
 
@@ -75,7 +75,39 @@ class RMInterface(object):
         """ Renew resources (skips all checks)
         :param slices: dict with slice name (key) and client information
         :param end_time: end time of reservation
-        :return: list of Resources type
+        :return: list of GeniResources
+        """
+        pass
+
+    @abstractmethod
+    def start_slices(self, slices):
+        """ Start slices (throw exception if any check fails)
+        :param slices: dict with slice name (key) and client information
+        :return: list of GeniResources
+        """
+        pass
+
+    @abstractmethod
+    def force_start_slices(self, slices):
+        """ Start slices (skips all checks)
+        :param slices: dict with slice name (key) and client information
+        :return: list of GeniResources
+        """
+        pass
+
+    @abstractmethod
+    def stop_slices(self, slices):
+        """ Stop slices (throw exception if any check fails)
+        :param slices: dict with slice name (key) and client information
+        :return: list of GeniResources
+        """
+        pass
+
+    @abstractmethod
+    def force_stop_slices(self, slices):
+        """ Stop slices (skips all checks)
+        :param slices: dict with slice name (key) and client information
+        :return: list of GeniResources
         """
         pass
 
@@ -237,6 +269,22 @@ class RMRoadmManager(RMInterface):
 
         finally:
             ons_models.roadmsDBM.close_session()
+
+    @serviceinterface
+    def start_slices(self, slices):
+        raise ons_ex.ONSException("start_slices: NOT implemented yet!")
+
+    @serviceinterface
+    def force_start_slices(self, slices):
+        raise ons_ex.ONSException("force_start_slices: NOT implemented yet!")
+
+    @serviceinterface
+    def stop_slices(self, slices):
+        raise ons_ex.ONSException("stop_slices: NOT implemented yet!")
+
+    @serviceinterface
+    def force_stop_slices(self, slices):
+        raise ons_ex.ONSException("force_stop_slices: NOT implemented yet!")
 
     @serviceinterface
     def delete_resources(self, resources, slices):

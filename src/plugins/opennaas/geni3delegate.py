@@ -278,7 +278,44 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
         For full description see http://groups.geni.net/geni/wiki/GAPI_AM_API_V3#PerformOperationalAction
         """
-        raise geni_ex.GENIv3GeneralError("Method not implemented yet")
+        if action == 'geni_start':
+            (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'startslice', None)
+
+        elif action == 'geni_stop':
+            (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'stopslice', None)
+        else:
+            raise geni_ex.GENIv3OperationUnsupportedError('Only geni_start|stop can be given to this aggregate')
+
+        if len(slivers_):
+            raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
+
+        rs_ = []
+        try:
+            logger.debug("Best=%s, Action=%s, Slices=%s, Slivers=%s" % (best_effort, action, slices_, slivers_,))
+            if best_effort == False and action == 'geni_start':
+                rs_ = self._resource_manager.start_slices(slices=slices_)
+
+            elif best_effort == False and action == 'geni_stop':
+                rs_ = self._resource_manager.stop_slices(slices=slices_)
+
+            elif best_effort == True and action == 'geni_start':
+                rs_ = self._resource_manager.force_start_slices(slices=slices_)
+
+            elif best_effort == True and action == 'geni_stop':
+                rs_ = self._resource_manager.force_stop_slices(slices=slices_)
+
+        except ons_ex.ONSResourceNotFound as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3SearchFailedError(str(e))
+
+        except ons_ex.ONSException as e:
+            logger.error(str(e))
+            raise geni_ex.GENIv3GeneralError(str(e))
+
+        if (not len(rs_)) and (best_effort == False):
+            raise geni_ex.GENIv3SearchFailedError("There are no resources in the given slice(s)")
+
+        return [self.__format_sliver_status(r, True) for r in rs_]
 
     @enter_method_log
     def delete(self, urns, client_cert, credentials, best_effort):
