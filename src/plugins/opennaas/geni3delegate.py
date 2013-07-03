@@ -208,16 +208,18 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         """
         (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'renewsliver', 'renewsliver')
 
+        if len(slivers_):
+            raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
+
         rs_ = []
         try:
             logger.debug("Best=%s, Slices=%s, Slivers=%s" % (best_effort, slices_, slivers_,))
-            if best_effort == False: # all included slivers to be renewed or none
-                rs_ = self._resource_manager.renew_resources(resources=slivers_,
-                                                             slices=slices_,
+            if best_effort == False:
+                # all included slivers to be renewed or none
+                rs_ = self._resource_manager.renew_resources(slices=slices_,
                                                              end_time=expiration_time)
             else: # partial success if possible
-                rs_ = self._resource_manager.force_renew_resources(resources=slivers_,
-                                                                   slices=slices_,
+                rs_ = self._resource_manager.force_renew_resources(slices=slices_,
                                                                    end_time=expiration_time)
         except ons_ex.ONSResourceNotFound as e:
             logger.error(str(e))

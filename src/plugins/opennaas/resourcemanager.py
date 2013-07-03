@@ -62,9 +62,8 @@ class RMInterface(object):
         pass
 
     @abstractmethod
-    def renew_resources(self, resources, slices, end_time):
+    def renew_resources(self, slices, end_time):
         """ Renew resources (throw exception if any check fails)
-        :param resources: dict with resource name (key) and client information
         :param slices: dict with slice name (key) and client information
         :param end_time: end time of reservation
         :return: list of Resources type
@@ -72,9 +71,8 @@ class RMInterface(object):
         pass
 
     @abstractmethod
-    def force_renew_resources(self, resources, slices, end_time):
+    def force_renew_resources(self, slices, end_time):
         """ Renew resources (skips all checks)
-        :param resources: dict with resource name (key) and client information
         :param slices: dict with slice name (key) and client information
         :param end_time: end time of reservation
         :return: list of Resources type
@@ -217,40 +215,28 @@ class RMRoadmManager(RMInterface):
             ons_models.roadmsDBM.close_session()
 
     @serviceinterface
-    def renew_resources(self, resources, slices, end_time):
+    def renew_resources(self, slices, end_time):
         raise ons_ex.ONSException("renew_resources: NOT implemented yet!")
 
     @serviceinterface
-    def force_renew_resources(self, resources, slices, end_time):
-        s_ = sessionmaker(bind=ons_models.engine)()
-        values = {'end_time': end_time,
-                  'modified_time': dt.datetime.now()}
-        rs_ = []
+    def force_renew_resources(self, slices, end_time):
+        try:
+            ons_models.roadmsDBM.open_session()
+            rs_ = []
+            for s_urn in slices.keys():
+                logger.debug("Slice urn=%s" % (s_urn,))
+                try:
+                    ons_models.roadmsDBM.renew_slice(s_urn, end_time, slices[s_urn])
+                    r_info_ = ons_models.roadmsDBM.get_slice(s_urn)
+                    rs_.extend(self.__create_detailed_manifest(r_info_))
 
-        for res_ in resources:
-            try:
-                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).all())
+                except sqla.exc.SQLAlchemyError as e:
+                    logger.error(str(e))
 
-                stmt = ons_models.roadm.update().where(sqla.and_(ons_models.Roadm.resource_name == res_)).values(values)
-                s_.execute(stmt)
-                s_.commit()
+            return rs_
 
-            except sqla.exc.SQLAlchemyError as e:
-                logger.warning(str(e))
-
-        for sli_ in slices:
-            try:
-                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).all())
-
-                stmt = ons_models.roadm.update().where(sqla.and_(ons_models.Roadm.slice_name == sli_)).values(values)
-                s_.execute(stmt)
-                s_.commit()
-
-            except sqla.exc.SQLAlchemyError as e:
-                logger.warning(str(e))
-
-        logger.debug("force_renew_resources=%s" % (rs_,))
-        return rs_
+        finally:
+            ons_models.roadmsDBM.close_session()
 
     @serviceinterface
     def delete_resources(self, resources, slices):

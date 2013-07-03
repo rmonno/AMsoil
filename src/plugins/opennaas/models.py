@@ -208,6 +208,20 @@ class RoadmsDBM(object):
         except sqla.exc.SQLAlchemyError as e:
             raise self.ons_ex.ONSException(str(e))
 
+    def renew_slice(self, slice_urn, end_time, client_info):
+        try:
+            client, client_id, client_mail = client_info
+            stmt_ = connections.update().where(connections.c.slice_urn==slice_urn).\
+                        values(end_time=end_time, client_name=client, client_id=client_id,
+                               client_email=client_mail)
+            self.__s.execute(stmt_)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
 
 roadmsDBM = RoadmsDBM()
 
@@ -225,7 +239,7 @@ class GeniRoadmDetails(object):
                  connected_in_urn=None, connected_out_urn=None):
         self.client = client
         self.client_id = client_id
-        self.client_mail = client_mail
+        self.client_mail = client_mail if client_mail else 'empty'
         self.connected_in_urn = connected_in_urn
         self.connected_out_urn = connected_out_urn
 
