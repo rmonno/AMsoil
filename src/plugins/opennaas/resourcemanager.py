@@ -316,7 +316,10 @@ class RMTests:
             logger.error("XXX DB XXX error: %s" % str(e))
 
         ons_comms = pm.getService('opennaas_commands')
-        ons_comms.commandsMngr.create()
+        ons_comms.commandsMngr.resource_create()
+        ons_comms.commandsMngr.resource_list()
+        ons_comms.commandsMngr.getXConnections()
+        ons_comms.commandsMngr.getEndPoints()
 
     def secure_read(self, sess):
         try:
