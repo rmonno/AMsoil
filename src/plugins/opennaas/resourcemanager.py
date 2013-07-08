@@ -6,6 +6,7 @@ from amsoil.core import serviceinterface
 
 ons_ex = pm.getService('opennaas_exceptions')
 ons_models = pm.getService('opennaas_models')
+ons_fsm = pm.getService('opennaas_fsm')
 config = pm.getService("config")
 worker = pm.getService('worker')
 
@@ -133,8 +134,6 @@ class RMRoadmManager(RMInterface):
                                None, config.get("opennaas.check_expire_timeout"))
         logger.debug("Init openNaas ROADM resource manager")
 
-        if config.get("opennaas.tests"): RMTests()
-
     def __create_manifest(self, resources, sname, endt, alloc):
         ret_ = []
         for r in resources:
@@ -179,11 +178,11 @@ class RMRoadmManager(RMInterface):
 
     @worker.outsideprocess
     def update_resources(self, params):
-        logger.debug("update resources: %s" % (params,))
+        ons_fsm.fsmMngr.action()
 
     @worker.outsideprocess
     def check_resources_expiration(self, params):
-        logger.debug("check resources expiration: %s" % (params,))
+        pass
 
     @serviceinterface
     def get_resources(self):
@@ -301,78 +300,3 @@ class RMRoadmManager(RMInterface):
     @serviceinterface
     def force_delete_resources(self, resources, slices):
         raise ons_ex.ONSException("force_delete_resources: NOT implemented yet!")
-
-
-class RMTests:
-    def __init__(self):
-        try:
-            s_ = sessionmaker(bind=ons_models.engine)()
-            self.secure_read(s_)
-            self.secure_resources(s_)
-            self.secure_roadms(s_)
-            #self.secure_conns(s_)
-
-        except Exception as e:
-            logger.error("XXX DB XXX error: %s" % str(e))
-
-        ons_comms = pm.getService('opennaas_commands')
-        ons_comms.commandsMngr.resource_create()
-        ons_comms.commandsMngr.resource_list()
-        ons_comms.commandsMngr.getXConnections()
-        ons_comms.commandsMngr.getEndPoints()
-
-    def secure_read(self, sess):
-        try:
-            rs = sess.query(ons_models.Resources).all()
-            logger.debug("XXX DB XXX: resources=%s" % (str(rs)))
-
-            ros = sess.query(ons_models.Roadms).all()
-            logger.debug("XXX DB XXX: roadms=%s" % (str(ros)))
-
-            conns = sess.query(ons_models.RoadmsConns).all()
-            logger.debug("XXX DB XXX: conns=%s" % (str(conns)))
-
-        except Exception as e:
-            logger.error("XXX SECURE-READ XXX error: %s" % str(e))
-
-    def secure_resources(self, sess):
-        try:
-            sess.add(ons_models.Resources(rname='Device1', rtype='roadm'))
-            sess.add(ons_models.Resources(rname='Device2', rtype='roadm'))
-            sess.add(ons_models.Resources(rname='Device3', rtype='roadm'))
-            sess.commit()
-
-        except Exception as e:
-            sess.rollback()
-            logger.error("XXX SECURE-RESOURCES XXX error: %s" % str(e))
-
-    def secure_roadms(self, sess):
-        try:
-            sess.add(ons_models.Roadms(rid=1, rep='ep1', rlabel='l1'))
-            sess.add(ons_models.Roadms(rid=1, rep='ep1', rlabel='l2'))
-            sess.add(ons_models.Roadms(rid=1, rep='ep2', rlabel='l1'))
-            sess.add(ons_models.Roadms(rid=1, rep='ep2', rlabel='l2'))
-
-            sess.add(ons_models.Roadms(rid=2, rep='ep11', rlabel='l11'))
-            sess.add(ons_models.Roadms(rid=2, rep='ep11', rlabel='l12'))
-            sess.add(ons_models.Roadms(rid=2, rep='ep12', rlabel='l21'))
-            sess.add(ons_models.Roadms(rid=2, rep='ep12', rlabel='l22'))
-
-            sess.add(ons_models.Roadms(rid=3, rep='ep101', rlabel='l100'))
-            sess.add(ons_models.Roadms(rid=3, rep='ep102', rlabel='l101'))
-            sess.add(ons_models.Roadms(rid=3, rep='ep201', rlabel='l220'))
-            sess.add(ons_models.Roadms(rid=3, rep='ep202', rlabel='l221'))
-            sess.commit()
-
-        except Exception as e:
-            sess.rollback()
-            logger.error("XXX SECURE-ROADMS XXX error: %s" % str(e))
-
-    def secure_conns(self, sess):
-        try:
-            sess.add(ons_models.RoadmsConns(ingress=1, egress=2, slice_urn='mySlice'))
-            sess.commit()
-
-        except Exception as e:
-            sess.rollback()
-            logger.error("XXX SECURE-CONNS XXX error: %s" % str(e))
