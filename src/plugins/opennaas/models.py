@@ -100,6 +100,9 @@ mapper(Resources, resources)
 mapper(Roadms, roadms)
 mapper(RoadmsConns, connections)
 
+def create_xconn_id(src_ep, src_label, dst_ep, dst_label):
+    return src_ep + ':' + src_label + '::' + dst_ep + ':' + dst_label
+
 
 class RoadmsDBM(object):
     ons_ex = pm.getService('opennaas_exceptions')
@@ -146,16 +149,17 @@ class RoadmsDBM(object):
                 raise self.ons_ex.ONSResourceNotAvailable('Egress not available (id=%s, ep=%s, lab=%s)' %\
                                                           (re_.id, roadm['out_endpoint'], roadm['out_label'],))
 
-            return (rin_.id, rout_.id)
+            return (rin_.id, rout_.id, create_xconn_id(rin_.endpoint, rin_.label, rout_.endpoint, rout_.label))
 
         except sqla.exc.SQLAlchemyError as e:
             raise self.ons_ex.ONSResourceNotFound(str(e))
 
-    def make_connection(self, ingress, egress, values):
+    def make_connection(self, ingress, egress, conn_id, values):
         try:
-            stmt_ = connections.insert().values(ingress=ingress, egress=egress, slice_urn=values['slice_name'],
-                                                end_time=values['end_time'], client_name=values['client_name'],
-                                                client_id=values['client_id'],client_email=values['client_email'])
+            stmt_ = connections.insert().values(ingress=ingress, egress=egress, xconn_id=conn_id,
+                                                slice_urn=values['slice_name'], end_time=values['end_time'],
+                                                client_name=values['client_name'], client_id=values['client_id'],
+                                                client_email=values['client_email'])
             self.__s.execute(stmt_)
 
             stmt_ = roadms.update().where(roadms.c.id==ingress).values(allocation=ALLOCATION.ALLOCATED)
@@ -177,7 +181,7 @@ class RoadmsDBM(object):
                              join(Roadms, Resources.id==Roadms.resource_id).all()
             ret_ = []
             for r_ in rall_:
-                if r_.allocation != ALLOCATION.FREE:
+                if r_.allocation == ALLOCATION.ALLOCATED:
                     conn_ = self.__s.query(RoadmsConns).filter(sqla.or_(RoadmsConns.ingress == r_.id,
                                                                         RoadmsConns.egress == r_.id)).one()
 

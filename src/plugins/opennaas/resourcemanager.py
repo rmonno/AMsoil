@@ -215,8 +215,8 @@ class RMRoadmManager(RMInterface):
                       'client_id': client_id,
                       'client_email': client_mail}
 
-            for ingress_id, egress_id in conns_:
-                ons_models.roadmsDBM.make_connection(ingress_id, egress_id, values)
+            for ingress_id, egress_id, xconn_id in conns_:
+                ons_models.roadmsDBM.make_connection(ingress_id, egress_id, xconn_id, values)
 
             return self.__create_manifest(resources, slice_name, end_time, ons_models.ALLOCATION.ALLOCATED)
 
