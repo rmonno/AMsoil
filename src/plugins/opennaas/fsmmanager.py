@@ -20,8 +20,9 @@ class FSM(Fysom):
         self.xconns = []
 
         super(FSM, self).__init__({
-            'initial': 'get',
-            'events': [{'name': 'action', 'src': 'get',    'dst': 'update'},
+            'initial': 'init',
+            'events': [{'name': 'action', 'src': 'init',   'dst': 'get'},
+                       {'name': 'action', 'src': 'get',    'dst': 'update'},
                        {'name': 'action', 'src': 'update', 'dst': 'clean'},
                        {'name': 'action', 'src': 'clean',  'dst': 'get'}]
         })
