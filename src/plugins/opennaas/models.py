@@ -1,5 +1,5 @@
 import amsoil.core.pluginmanager as pm
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import sqlalchemy as sqla
 from sqlalchemy import event
@@ -21,7 +21,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 
 
 class ALLOCATION:
-    FREE, ALLOCATED, PROVISIONED = range(3)
+    FREE, ALLOCATED, PROVISIONED, AUDIT_TRANS = range(4)
 
 class OPERATIONAL:
     FAILED = range(1)
@@ -31,6 +31,7 @@ resources = sqla.Table('Resources', meta,
                        sqla.Column('id', sqla.Integer, primary_key=True, autoincrement=True),
                        sqla.Column('name', sqla.String),
                        sqla.Column('type', sqla.String),
+                       sqla.Column('audit_time', sqla.DateTime, default=datetime.utcnow),
                        sqla.UniqueConstraint('name', 'type'),
                       )
 
@@ -39,7 +40,8 @@ roadms = sqla.Table('Roadms', meta,
                     sqla.Column('resource_id', sqla.Integer),
                     sqla.Column('endpoint', sqla.String),
                     sqla.Column('label', sqla.String),
-                    sqla.Column('allocation', sqla.Integer, default=ALLOCATION.FREE),
+                    sqla.Column('allocation', sqla.Integer, default=ALLOCATION.AUDIT_TRANS),
+                    sqla.Column('audit_time', sqla.DateTime, default=datetime.utcnow),
                     sqla.UniqueConstraint('endpoint', 'label', 'resource_id'),
                     sqla.ForeignKeyConstraint(['resource_id'], ['Resources.id'],
                                               onupdate="CASCADE", ondelete="CASCADE"),
@@ -48,11 +50,13 @@ roadms = sqla.Table('Roadms', meta,
 connections = sqla.Table('RoadmsConnections', meta,
                          sqla.Column('ingress', sqla.Integer, primary_key=True, unique=True),
                          sqla.Column('egress', sqla.Integer, primary_key=True, unique=True),
-                         sqla.Column('slice_urn', sqla.String, nullable=False),
-                         sqla.Column('end_time', sqla.DateTime, default=datetime.now),
+                         sqla.Column('xconn_id', sqla.String),
+                         sqla.Column('slice_urn', sqla.String),
+                         sqla.Column('end_time', sqla.DateTime, default=datetime.utcnow),
                          sqla.Column('client_name', sqla.String, default=''),
                          sqla.Column('client_id', sqla.String, default=''),
                          sqla.Column('client_email', sqla.String, default=''),
+                         sqla.Column('audit_time', sqla.DateTime, default=datetime.utcnow),
                          sqla.ForeignKeyConstraint(['ingress'], ['Roadms.id'],
                                                    onupdate="CASCADE", ondelete="CASCADE"),
                          sqla.ForeignKeyConstraint(['egress'], ['Roadms.id'],
@@ -66,7 +70,8 @@ class Resources(object):
         self.type = rtype
 
     def __repr__(self):
-        return "(id=%d, name=%s, type=%s)" % (self.id, self.name, self.type,)
+        return "(id=%d, name=%s, type=%s, audit=%s)" %\
+               (self.id, self.name, self.type, str(self.audit_time),)
 
 class Roadms(object):
     def __init__(self, rid, rep, rlabel):
@@ -75,8 +80,9 @@ class Roadms(object):
         self.label = rlabel
 
     def __repr__(self):
-        return "(id=%d, resource-id=%d, endpoint=%s, label=%s, alloc=%d)" %\
-               (self.id, self.resource_id, self.endpoint, self.label, self.allocation,)
+        return "(id=%d, resource-id=%d, endpoint=%s, label=%s, alloc=%d, audit=%s)" %\
+               (self.id, self.resource_id, self.endpoint, self.label, self.allocation,
+                str(self.audit_time),)
 
 class RoadmsConns(object):
     def __init__(self, ingress, egress, slice_urn):
@@ -85,9 +91,9 @@ class RoadmsConns(object):
         self.slice_urn = slice_urn
 
     def __repr__(self):
-        return "(ingress=%d, egress=%d, slice=%s, end_time=%s, client_name=%s, client_id=%s, client_email=%s)" %\
-               (self.ingress, self.egress, self.slice_urn, str(self.end_time),
-                self.client_name, self.client_id, self.client_email)
+        return "(in=%d, out=%d, xid=%s, slice=%s, end=%s, cname=%s, cid=%s, cmail=%s, audit=%s)" %\
+               (self.ingress, self.egress, self.xconn_id, self.slice_urn, str(self.end_time),
+                self.client_name, self.client_id, self.client_email, str(self.audit_time))
 
 
 mapper(Resources, resources)
@@ -214,6 +220,121 @@ class RoadmsDBM(object):
             stmt_ = connections.update().where(connections.c.slice_urn==slice_urn).\
                         values(end_time=end_time, client_name=client, client_id=client_id,
                                client_email=client_mail)
+            self.__s.execute(stmt_)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+    # audit procedures
+    def __audit_resource(self, rtype, rname):
+        try:
+            stmt_ = resources.insert().values(name=rname, type=rtype)
+            self.__s.execute(stmt_)
+
+        except sqla.exc.SQLAlchemyError:
+            stmt_ = resources.update().where(sqla.and_(resources.c.name==rname,
+                                                       resources.c.type==rtype)).\
+                        values(audit_time=datetime.utcnow())
+            self.__s.execute(stmt_)
+
+    def __audit_roadm(self, rid, ep, label):
+        try:
+            stmt_ = roadms.insert().values(resource_id=rid,endpoint=ep,label=label)
+            self.__s.execute(stmt_)
+
+        except sqla.exc.SQLAlchemyError:
+            stmt_ = roadms.update().where(sqla.and_(roadms.c.resource_id==rid,
+                                                    roadms.c.endpoint==ep,
+                                                    roadms.c.label==label)).\
+                        values(audit_time=datetime.utcnow())
+            self.__s.execute(stmt_)
+
+    def __audit_connection(self, ingr, egr, xid):
+        try:
+            stmt_ = connections.insert().values(ingress=ingr,egress=egr,xconn_id=xid)
+            self.__s.execute(stmt_)
+
+        except sqla.exc.SQLAlchemyError:
+            stmt_ = connections.update().where(sqla.and_(connections.c.ingress==ingr,
+                                                         connections.c.egress==egr)).\
+                        values(audit_time=datetime.utcnow())
+            self.__s.execute(stmt_)
+
+        stmt_ = roadms.update().where(sqla.or_(roadms.c.id==ingr,
+                                               roadms.c.id==egr)).\
+                    values(allocation=ALLOCATION.ALLOCATED)
+        self.__s.execute(stmt_)
+
+    def audit_resources(self, info):
+        try:
+            for (rtype, rname) in info:
+                self.__audit_resource(rtype, rname)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+    def audit_roadms(self, info):
+        try:
+            r_id, r_type, r_name = (None, None, None)
+            for (rtype, rname, ep, label) in info:
+                if rtype != r_type or rname != r_name:
+                    r_id, r_type, r_name = self.__s.query(Resources.id, Resources.type, Resources.name).\
+                                                filter(sqla.and_(Resources.name==rname,
+                                                                 Resources.type==rtype)).one()
+
+                self.__audit_roadm(r_id, ep, label)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+    def audit_connections(self, info):
+        try:
+            r_id, r_type, r_name = (None, None, None)
+            for (rtype, rname, xconn) in info:
+                x_id, xsrc_ep, xsrc_label, xdst_ep, xdst_label = xconn
+                if rtype != r_type or rname != r_name:
+                    r_id, r_type, r_name = self.__s.query(Resources.id, Resources.type, Resources.name).\
+                                                filter(sqla.and_(Resources.name==rname,
+                                                                 Resources.type==rtype)).one()
+
+                rin = self.__s.query(Roadms.id).filter(sqla.and_(Roadms.resource_id==r_id,
+                                                                 Roadms.endpoint==xsrc_ep,
+                                                                 Roadms.label==xsrc_label)).one()
+                rout = self.__s.query(Roadms.id).filter(sqla.and_(Roadms.resource_id==r_id,
+                                                                  Roadms.endpoint==xdst_ep,
+                                                                  Roadms.label==xdst_label)).one()
+                self.__audit_connection(rin.id, rout.id, x_id)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+    def audit_terminated(self):
+        try:
+            old_time = datetime.utcnow() - timedelta(days=1)
+
+            stmt_ = resources.delete(resources.c.audit_time < old_time)
+            self.__s.execute(stmt_)
+
+            stmt_ = roadms.delete(roadms.c.audit_time < old_time)
+            self.__s.execute(stmt_)
+
+            stmt_ = connections.delete(connections.c.audit_time < old_time)
+            self.__s.execute(stmt_)
+
+            stmt_ = roadms.update().where(roadms.c.allocation==ALLOCATION.AUDIT_TRANS).\
+                        values(allocation=ALLOCATION.FREE)
             self.__s.execute(stmt_)
 
             self.__s.commit()

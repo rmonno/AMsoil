@@ -13,7 +13,10 @@ def setup():
     config.install("opennaas.reservation_timeout", 5, "Reservation timeout (minutes)")
     config.install("opennaas.server_address", "localhost", "OpenNaas server address")
     config.install("opennaas.server_port", 8888, "OpenNaas server port")
+    config.install("opennaas.user", "admin", "OpenNaas user")
+    config.install("opennaas.password", "123456", "OpenNaas password")
     config.install("opennaas.update_timeout", 10, "Update resources timeout (secs)")
+    config.install("opennaas.update_step", 100, "Update resources step")
     config.install("opennaas.check_expire_timeout", 20, "Check resources expiration timeout (secs)")
 
     # resource manager

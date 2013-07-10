@@ -16,12 +16,13 @@ class CommandsManager(object):
 
     def __init__(self, host, port):
         self._base_url = 'http://' + host + ':' + port + '/opennaas/'
+        self._auth = (config.get("opennaas.user"), config.get("opennaas.password"))
 
     def post(self, url, xml_data):
         try:
             logger.debug("POST url=%s, data=%s" % (url, xml_data,))
             return requests.post(url=url, headers={'Content-Type': 'application/xml'},
-                                 data=xml_data).text
+                                 auth=self._auth, data=xml_data).text
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -29,7 +30,7 @@ class CommandsManager(object):
     def get(self, url):
         try:
             logger.debug("GET url=%s" % (url,))
-            return requests.get(url=url).text
+            return requests.get(url=url, auth=self._auth).text
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -37,7 +38,7 @@ class CommandsManager(object):
     def delete(self, url):
         try:
             logger.debug("DELETE url=%s" % (url,))
-            return requests.delete(url=url).text
+            return requests.delete(url=url, auth=self._auth).text
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -81,11 +82,11 @@ class RoadmCM(CommandsManager):
 
     def decode_xml_conn(self, xml_data):
         try:
-            return {'dstEP':ET.fromstring(xml_data).find('dstEndPointId').text,
-                    'dstLabel':ET.fromstring(xml_data).find('dstLabelId').text,
-                    'iID':ET.fromstring(xml_data).find('instanceID').text,
-                    'srcEP':ET.fromstring(xml_data).find('srcEndPointId').text,
-                    'srcLabel':ET.fromstring(xml_data).find('srcLabelId').text}
+            return (ET.fromstring(xml_data).find('instanceID').text,
+                    ET.fromstring(xml_data).find('srcEndPointId').text,
+                    ET.fromstring(xml_data).find('srcLabelId').text,
+                    ET.fromstring(xml_data).find('dstEndPointId').text,
+                    ET.fromstring(xml_data).find('dstLabelId').text)
 
         except ET.ParseError as e:
             logger.error("XML ParseError: %s" % (str(e),))
