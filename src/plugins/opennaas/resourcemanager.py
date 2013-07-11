@@ -9,12 +9,10 @@ ons_models = pm.getService('opennaas_models')
 ons_fsm = pm.getService('opennaas_fsm')
 config = pm.getService("config")
 worker = pm.getService('worker')
+ons_comms = pm.getService('opennaas_commands')
 
 from abc import ABCMeta, abstractmethod
 import datetime as dt
-import sqlalchemy as sqla
-from sqlalchemy.orm import sessionmaker
-
 
 """
 OpenNaas Resource Manager.
@@ -102,20 +100,18 @@ class RMInterface(object):
         pass
 
     @abstractmethod
-    def delete_resources(self, resources, slices):
-        """ Delete resources (throw exception if any check fails)
-        :param resources: dict with resource name (key) and client information
+    def delete_slices(self, slices):
+        """ Remove slices (throw exception if any check fails)
         :param slices: dict with slice name (key) and client information
-        :return: list of Resources type
+        :return: list of GeniResources
         """
         pass
 
     @abstractmethod
-    def force_delete_resources(self, resources, slices):
-        """ Delete resources (skips all checks)
-        :param resources: dict with resource name (key) and client information
+    def force_delete_slices(self, slices):
+        """ Remove slices (skips all checks)
         :param slices: dict with slice name (key) and client information
-        :return: list of Resources type
+        :return: list of GeniResources
         """
         pass
 
@@ -170,6 +166,41 @@ class RMRoadmManager(RMInterface):
             ret_.append(geni_out_)
 
         return ret_
+
+    def __operation_slices(self, slices, call_func):
+        try:
+            ons_models.roadmsDBM.open_session()
+            exec_ = set()
+            rs_ = []
+            for s_urn in slices.keys():
+                logger.debug("Slice urn=%s" % (s_urn,))
+                r_info_ = ons_models.roadmsDBM.get_slice(s_urn)
+                e_info_ = [call_func(rin, rout, conn) for (rin, rout, conn) in r_info_]
+
+                [exec_.add(e) for e in e_info_]
+                rs_.extend(self.__create_detailed_manifest(r_info_))
+
+            [ons_comms.commandsMngr.execute(rtype, rname) for (rtype, rname) in exec_]
+            return rs_
+
+        finally:
+            ons_models.roadmsDBM.close_session()
+
+    def __make_conn(self, r_in, r_out, conns):
+        if (r_in.type != r_out.type) or (r_in.name != r_out.name):
+            raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
+
+        ons_comms.commandsMngr.makeXConnection(r_in.type, r_in.name, conns.xconn_id,
+                                               r_in.endpoint, r_in.label,
+                                               r_out.endpoint, r_out.label)
+        return (r_in.type, r_in.name)
+
+    def __destroy_conn(self, r_in, r_out, conns):
+        if (r_in.type != r_out.type) or (r_in.name != r_out.name):
+            raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
+
+        ons_comms.commandsMngr.removeXConnection(r_in.type, r_in.name, conns.xconn_id)
+        return (r_in.type, r_in.name)
 
     def create_geni_resource(self, resource_name, endpoint, label,
                              slice_name, end_time, resource_type, allocation):
@@ -250,7 +281,7 @@ class RMRoadmManager(RMInterface):
                     r_info_ = ons_models.roadmsDBM.get_slice(s_urn)
                     rs_.extend(self.__create_detailed_manifest(r_info_))
 
-                except sqla.exc.SQLAlchemyError as e:
+                except ons_ex.ONSException as e:
                     logger.error(str(e))
 
             return rs_
@@ -260,7 +291,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def start_slices(self, slices):
-        raise ons_ex.ONSException("start_slices: NOT implemented yet!")
+        return self.__operation_slices(slices, self.__make_conn)
 
     @serviceinterface
     def force_start_slices(self, slices):
@@ -268,35 +299,16 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def stop_slices(self, slices):
-        raise ons_ex.ONSException("stop_slices: NOT implemented yet!")
+        return self.__operation_slices(slices, self.__destroy_conn)
 
     @serviceinterface
     def force_stop_slices(self, slices):
         raise ons_ex.ONSException("force_stop_slices: NOT implemented yet!")
 
     @serviceinterface
-    def delete_resources(self, resources, slices):
-        s_ = sessionmaker(bind=ons_models.engine)()
-        rs_ = []
-
-        try:
-            for res_ in resources:
-                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).all())
-                s_.query(ons_models.Roadm).filter(ons_models.Roadm.resource_name == res_).delete()
-
-            for sli_ in slices:
-                rs_.extend(s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).all())
-                s_.query(ons_models.Roadm).filter(ons_models.Roadm.slice_name == sli_).delete()
-
-            s_.commit()
-
-        except sqla.exc.SQLAlchemyError as e:
-            s_.rollback()
-            raise ons_ex.ONSException(str(e))
-
-        logger.debug("delete_resources=%s" % (rs_,))
-        return rs_
+    def delete_slices(self, slices):
+        raise ons_ex.ONSException("delete_slices: NOT implemented yet!")
 
     @serviceinterface
-    def force_delete_resources(self, resources, slices):
-        raise ons_ex.ONSException("force_delete_resources: NOT implemented yet!")
+    def force_delete_slices(self, slices):
+        raise ons_ex.ONSException("force_delete_slices: NOT implemented yet!")

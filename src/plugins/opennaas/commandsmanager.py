@@ -21,8 +21,10 @@ class CommandsManager(object):
     def post(self, url, xml_data):
         try:
             logger.debug("POST url=%s, data=%s" % (url, xml_data,))
-            return requests.post(url=url, headers={'Content-Type': 'application/xml'},
-                                 auth=self._auth, data=xml_data).text
+            resp_ = requests.post(url=url, headers={'Content-Type': 'application/xml'},
+                                  auth=self._auth, data=xml_data).text
+            logger.debug("POST resp=%s" % (resp_,))
+            return resp_
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -30,7 +32,9 @@ class CommandsManager(object):
     def get(self, url):
         try:
             logger.debug("GET url=%s" % (url,))
-            return requests.get(url=url, auth=self._auth).text
+            resp_ = requests.get(url=url, auth=self._auth).text
+            logger.debug("GET resp=%s" % (resp_,))
+            return resp_
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -38,7 +42,9 @@ class CommandsManager(object):
     def delete(self, url):
         try:
             logger.debug("DELETE url=%s" % (url,))
-            return requests.delete(url=url, auth=self._auth).text
+            resp_ = requests.delete(url=url, auth=self._auth).text
+            logger.debug("DELETE resp=%s" % (resp_,))
+            return resp_
 
         except requests.exceptions.RequestException as e:
             raise ons_ex.ONSException(str(e))
@@ -92,23 +98,30 @@ class RoadmCM(CommandsManager):
             logger.error("XML ParseError: %s" % (str(e),))
             return None
 
-    def makeXConnection(self, instance_id, src_ep_id, src_label_id,
-                        dst_ep_id, dst_label_id):
-        """
-        <xConnection>
-            <instanceID>id</instanceID>
-            <srcEndPointId>srcEP</srcEndPointId>
-            <srcLabelId>srcL</srcLabelId>
-            <dstEndPointId>dstEP</dstEndPointId>
-            <dstLabelId>dstL</dstLabelId>
-        </xConnection>
-        """
-        ingress = (instance_id, src_ep_id, src_label_id, dst_ep_id, dst_label_id)
-        logger.debug("Ingress=%s" % (ingress,))
+    def encode_xml_conn(self, x_id, src_ep, src_label, dst_ep, dst_label):
+        root = ET.Element('xConnection')
+        ET.SubElement(root, 'instanceID').text = x_id
+        ET.SubElement(root, 'srcEndPointId').text = src_ep
+        ET.SubElement(root, 'srcLabelId').text = src_label
+        ET.SubElement(root, 'dstEndPointId').text = dst_ep
+        ET.SubElement(root, 'dstLabelId').text = dst_label
 
-    def removeXConnection(self, ident):
-        ingress = (ident,)
-        logger.debug("Ingress=%s" % (ingress,))
+        return ET.tostring(root)
+
+    def makeXConnection(self, r_type, r_name, instance_id,
+                        src_ep_id, src_label_id,
+                        dst_ep_id, dst_label_id):
+        data = self.encode_xml_conn(instance_id, src_ep_id, src_label_id,
+                                    dst_ep_id, dst_label_id)
+        command = r_type + '/' + r_name + '/xconnect/'
+        r = self.post(self._base_url + command, data)
+
+        if r != instance_id:
+            raise ons_ex.ONSException('InstanceId mismatch!')
+
+    def removeXConnection(self, r_type, r_name, instance_id):
+        command = r_type + '/' + r_name + '/xconnect/' + instance_id
+        self.delete(self._base_url + command)
 
     def getXConnections(self, r_type, r_name):
         command = r_type + '/' + r_name + '/xconnect/'
@@ -129,6 +142,10 @@ class RoadmCM(CommandsManager):
         command = r_type + '/' + r_name + '/xconnect/getLabels/' + ep_id
         ls_ = self.get(self._base_url + command)
         return self.decode_xml_entry(ls_)
+
+    def execute(self, r_type, r_name):
+        command = r_type + '/' + r_name + '/queue/execute'
+        self.post(self._base_url + command, None)
 
 
 commandsMngr = RoadmCM(host=config.get("opennaas.server_address"),
