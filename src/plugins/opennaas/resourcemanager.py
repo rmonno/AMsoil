@@ -186,7 +186,7 @@ class RMRoadmManager(RMInterface):
         finally:
             ons_models.roadmsDBM.close_session()
 
-    def __make_conn(self, r_in, r_out, conns):
+    def __start_conn(self, r_in, r_out, conns):
         if (r_in.type != r_out.type) or (r_in.name != r_out.name):
             raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
 
@@ -195,10 +195,18 @@ class RMRoadmManager(RMInterface):
                                                r_out.endpoint, r_out.label)
         return (r_in.type, r_in.name)
 
-    def __destroy_conn(self, r_in, r_out, conns):
+    def __stop_conn(self, r_in, r_out, conns):
         if (r_in.type != r_out.type) or (r_in.name != r_out.name):
             raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
 
+        ons_comms.commandsMngr.removeXConnection(r_in.type, r_in.name, conns.xconn_id)
+        return (r_in.type, r_in.name)
+
+    def __release_conn(self, r_in, r_out, conns):
+        if (r_in.type != r_out.type) or (r_in.name != r_out.name):
+            raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
+
+        ons_models.roadmsDBM.destroy_connection(conns.ingress, conns.egress)
         ons_comms.commandsMngr.removeXConnection(r_in.type, r_in.name, conns.xconn_id)
         return (r_in.type, r_in.name)
 
@@ -291,7 +299,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def start_slices(self, slices):
-        return self.__operation_slices(slices, self.__make_conn)
+        return self.__operation_slices(slices, self.__start_conn)
 
     @serviceinterface
     def force_start_slices(self, slices):
@@ -299,7 +307,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def stop_slices(self, slices):
-        return self.__operation_slices(slices, self.__destroy_conn)
+        return self.__operation_slices(slices, self.__stop_conn)
 
     @serviceinterface
     def force_stop_slices(self, slices):
@@ -307,7 +315,7 @@ class RMRoadmManager(RMInterface):
 
     @serviceinterface
     def delete_slices(self, slices):
-        raise ons_ex.ONSException("delete_slices: NOT implemented yet!")
+        return self.__operation_slices(slices, self.__release_conn)
 
     @serviceinterface
     def force_delete_slices(self, slices):

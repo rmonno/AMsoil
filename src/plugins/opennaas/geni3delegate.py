@@ -336,15 +336,18 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
         """
         (slices_, slivers_) = self.__get_slices_slivers_from_urns(urns, client_cert, credentials, 'deleteslice', 'deletesliver')
 
+        if len(slivers_):
+            raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
+
         rs_ = []
         try:
             logger.debug("Best=%s, Slices=%s, Slivers=%s" % (best_effort, slices_, slivers_,))
-            if best_effort == False: # all included slivers to be renewed or none
-                rs_ = self._resource_manager.delete_resources(resources=slivers_,
-                                                              slices=slices_)
+            if best_effort == False: # all included slivers to be removed or none
+                rs_ = self._resource_manager.delete_slices(slices=slices_)
+
             else: # partial success if possible
-                rs_ = self._resource_manager.force_delete_resources(resources=slivers_,
-                                                                    slices=slices_)
+                rs_ = self._resource_manager.force_delete_slices(slices=slices_)
+
         except ons_ex.ONSResourceNotFound as e:
             logger.error(str(e))
             raise geni_ex.GENIv3SearchFailedError(str(e))

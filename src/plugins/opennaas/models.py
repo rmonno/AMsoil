@@ -174,6 +174,23 @@ class RoadmsDBM(object):
             self.__s.rollback()
             raise self.ons_ex.ONSException(str(e))
 
+    def destroy_connection(self, ingress, egress):
+        try:
+            self.__s.query(RoadmsConns).filter(sqla.and_(RoadmsConns.ingress==ingress,
+                                                         RoadmsConns.egress==egress)).delete()
+
+            stmt_ = roadms.update().where(roadms.c.id==ingress).values(allocation=ALLOCATION.FREE)
+            self.__s.execute(stmt_)
+
+            stmt_ = roadms.update().where(roadms.c.id==egress).values(allocation=ALLOCATION.FREE)
+            self.__s.execute(stmt_)
+
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
     def get_resources(self):
         try:
             rall_ = self.__s.query(Resources.name, Resources.type, Roadms.endpoint,
