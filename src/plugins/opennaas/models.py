@@ -246,6 +246,14 @@ class RoadmsDBM(object):
         except sqla.exc.SQLAlchemyError as e:
             raise self.ons_ex.ONSException(str(e))
 
+    def get_expired_slices(self):
+        try:
+            return self.__s.query(RoadmsConns.slice_urn).\
+                            filter(RoadmsConns.end_time < datetime.utcnow()).all()
+
+        except sqla.exc.SQLAlchemyError as e:
+            raise self.ons_ex.ONSException(str(e))
+
     def renew_slice(self, slice_urn, end_time, client_info):
         try:
             client, client_id, client_mail = client_info

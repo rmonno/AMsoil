@@ -126,7 +126,7 @@ class RMRoadmManager(RMInterface):
 
         worker.addAsReccurring('opennaas_resourcemanager', 'update_resources',
                                None, config.get("opennaas.update_timeout"))
-        worker.addAsReccurring('opennaas_resourcemanager', 'check_resources_expiration',
+        worker.addAsReccurring('opennaas_resourcemanager', 'check_slices_expiration',
                                None, config.get("opennaas.check_expire_timeout"))
         logger.debug("Init openNaas ROADM resource manager")
 
@@ -225,8 +225,18 @@ class RMRoadmManager(RMInterface):
         ons_fsm.fsmMngr.action()
 
     @worker.outsideprocess
-    def check_resources_expiration(self, params):
-        pass
+    def check_slices_expiration(self, params):
+        slices_ = {}
+        try:
+            ons_models.roadmsDBM.open_session()
+            rs_ = ons_models.roadmsDBM.get_expired_slices()
+            for r in rs_:
+                if r.slice_urn: slices_[r.slice_urn] = None
+
+        finally:
+            ons_models.roadmsDBM.close_session()
+
+        self.delete_slices(slices_)
 
     @serviceinterface
     def get_resources(self):
