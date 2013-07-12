@@ -24,7 +24,7 @@ class ALLOCATION:
     FREE, ALLOCATED, PROVISIONED, AUDIT_TRANS = range(4)
 
 class OPERATIONAL:
-    FAILED = range(1)
+    READY, READY_BUSY = range(2)
 
 
 resources = sqla.Table('Resources', meta,
@@ -41,6 +41,7 @@ roadms = sqla.Table('Roadms', meta,
                     sqla.Column('endpoint', sqla.String),
                     sqla.Column('label', sqla.String),
                     sqla.Column('allocation', sqla.Integer, default=ALLOCATION.AUDIT_TRANS),
+                    sqla.Column('operational', sqla.Integer, default=OPERATIONAL.READY),
                     sqla.Column('audit_time', sqla.DateTime, default=datetime.utcnow),
                     sqla.UniqueConstraint('endpoint', 'label', 'resource_id'),
                     sqla.ForeignKeyConstraint(['resource_id'], ['Resources.id'],
@@ -80,9 +81,9 @@ class Roadms(object):
         self.label = rlabel
 
     def __repr__(self):
-        return "(id=%d, resource-id=%d, endpoint=%s, label=%s, alloc=%d, audit=%s)" %\
+        return "(id=%d, resource-id=%d, endpoint=%s, label=%s, alloc=%d, oper=%s, audit=%s)" %\
                (self.id, self.resource_id, self.endpoint, self.label, self.allocation,
-                str(self.audit_time),)
+                self.operational, str(self.audit_time),)
 
 class RoadmsConns(object):
     def __init__(self, ingress, egress, slice_urn):
@@ -162,10 +163,8 @@ class RoadmsDBM(object):
                                                 client_email=values['client_email'])
             self.__s.execute(stmt_)
 
-            stmt_ = roadms.update().where(roadms.c.id==ingress).values(allocation=ALLOCATION.ALLOCATED)
-            self.__s.execute(stmt_)
-
-            stmt_ = roadms.update().where(roadms.c.id==egress).values(allocation=ALLOCATION.ALLOCATED)
+            stmt_ = roadms.update().where(sqla.or_(roadms.c.id==ingress,
+                                                   roadms.c.id==egress)).values(allocation=ALLOCATION.ALLOCATED)
             self.__s.execute(stmt_)
 
             self.__s.commit()
@@ -179,10 +178,22 @@ class RoadmsDBM(object):
             self.__s.query(RoadmsConns).filter(sqla.and_(RoadmsConns.ingress==ingress,
                                                          RoadmsConns.egress==egress)).delete()
 
-            stmt_ = roadms.update().where(roadms.c.id==ingress).values(allocation=ALLOCATION.FREE)
+            stmt_ = roadms.update().where(sqla.or_(roadms.c.id==ingress,
+                                                   roadms.c.id==egress)).\
+                        values(allocation=ALLOCATION.FREE, operational=OPERATIONAL.READY)
             self.__s.execute(stmt_)
 
-            stmt_ = roadms.update().where(roadms.c.id==egress).values(allocation=ALLOCATION.FREE)
+            self.__s.commit()
+
+        except sqla.exc.SQLAlchemyError as e:
+            self.__s.rollback()
+            raise self.ons_ex.ONSException(str(e))
+
+    def oper_connection(self, ingress, egress, op_value):
+        try:
+            stmt_ = roadms.update().where(sqla.or_(roadms.c.id==ingress,
+                                                   roadms.c.id==egress)).\
+                        values(operational=op_value)
             self.__s.execute(stmt_)
 
             self.__s.commit()
@@ -193,8 +204,8 @@ class RoadmsDBM(object):
 
     def get_resources(self):
         try:
-            rall_ = self.__s.query(Resources.name, Resources.type, Roadms.endpoint,
-                                   Roadms.label, Roadms.allocation, Roadms.id).\
+            rall_ = self.__s.query(Resources.name, Resources.type, Roadms.endpoint, Roadms.label,
+                                   Roadms.allocation, Roadms.operational, Roadms.id).\
                              join(Roadms, Resources.id==Roadms.resource_id).all()
             ret_ = []
             for r_ in rall_:
@@ -203,10 +214,10 @@ class RoadmsDBM(object):
                                                                         RoadmsConns.egress == r_.id)).one()
 
                     ret_.append((r_.name, r_.endpoint, r_.label, conn_.slice_urn, conn_.end_time,\
-                                 r_.type, r_.allocation))
+                                 r_.type, r_.allocation, r_.operational))
                 else:
                     ret_.append((r_.name, r_.endpoint, r_.label, None, None,\
-                                 r_.type, r_.allocation))
+                                 r_.type, r_.allocation, r_.operational))
 
             return ret_
 
@@ -219,12 +230,12 @@ class RoadmsDBM(object):
             ret_ = []
             for r_ in rall_:
                 r_in_ = self.__s.query(Roadms.endpoint, Roadms.label, Roadms.allocation,
-                                       Resources.name, Resources.type).\
+                                       Roadms.operational, Resources.name, Resources.type).\
                                  join(Resources, Roadms.resource_id==Resources.id).\
                                  filter(Roadms.id == r_.ingress).one()
 
                 r_out_ = self.__s.query(Roadms.endpoint, Roadms.label, Roadms.allocation,
-                                        Resources.name, Resources.type).\
+                                        Roadms.operational, Resources.name, Resources.type).\
                                   join(Resources, Roadms.resource_id==Resources.id).\
                                   filter(Roadms.id == r_.egress).one()
 
@@ -391,18 +402,21 @@ class GeniRoadmDetails(object):
                 self.connected_in_urn, self.connected_out_urn)
 
 class GeniResource(object):
-    def __init__(self, urn, slice_urn, end_time, type_, allocation):
+    def __init__(self, urn, slice_urn, end_time, type_,
+                 allocation, operational, error=None):
         self.urn = urn
         self.end_time = end_time
         self.slice_urn = slice_urn
         self.type = type_
         self.allocation = allocation
+        self.operational = operational
+        self.error = error
         self.details = {}
 
     def __repr__(self):
-        return "(urn=%s, end-time=%s, slice=%s, type=%s, alloc=%s, details=%s)" %\
+        return "(urn=%s, end-time=%s, slice=%s, type=%s, alloc=%s, oper=%s, err=%s, details=%s)" %\
                (self.urn, str(self.end_time), self.slice_urn, self.type,
-                self.allocation, self.details)
+                self.allocation, self.operational, self.error, self.details)
 
     def available(self):
         return True if self.allocation == ALLOCATION.FREE else False

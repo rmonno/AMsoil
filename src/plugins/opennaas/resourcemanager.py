@@ -130,7 +130,7 @@ class RMRoadmManager(RMInterface):
                                None, config.get("opennaas.check_expire_timeout"))
         logger.debug("Init openNaas ROADM resource manager")
 
-    def __create_manifest(self, resources, sname, endt, alloc):
+    def __create_manifest(self, resources, sname, endt, alloc, oper):
         ret_ = []
         for r in resources:
             in_urn = ons_models.create_roadm_urn(r['gen']['name'],
@@ -140,8 +140,8 @@ class RMRoadmManager(RMInterface):
                                                   r['spec']['out_endpoint'],
                                                   r['spec']['out_label'])
 
-            ret_.append(ons_models.GeniResource(in_urn, sname, endt, r['gen']['type'], alloc))
-            ret_.append(ons_models.GeniResource(out_urn, sname, endt, r['gen']['type'], alloc))
+            ret_.append(ons_models.GeniResource(in_urn, sname, endt, r['gen']['type'], alloc, oper))
+            ret_.append(ons_models.GeniResource(out_urn, sname, endt, r['gen']['type'], alloc, oper))
 
         return ret_
 
@@ -154,13 +154,13 @@ class RMRoadmManager(RMInterface):
             out_urn = ons_models.create_roadm_urn(r_out.name, r_out.endpoint, r_out.label)
 
             geni_in_ = ons_models.GeniResource(in_urn, conns.slice_urn, conns.end_time,
-                                               r_in.type, r_in.allocation)
+                                               r_in.type, r_in.allocation, r_in.operational)
             geni_in_.roadm_details(conns.client_name, conns.client_id, conns.client_email,
                                    connected_out_urn=out_urn)
             ret_.append(geni_in_)
 
             geni_out_ = ons_models.GeniResource(out_urn, conns.slice_urn, conns.end_time,
-                                                r_in.type, r_in.allocation)
+                                                r_out.type, r_out.allocation, r_out.operational)
             geni_out_.roadm_details(conns.client_name, conns.client_id, conns.client_email,
                                     connected_in_urn=in_urn)
             ret_.append(geni_out_)
@@ -190,6 +190,8 @@ class RMRoadmManager(RMInterface):
         if (r_in.type != r_out.type) or (r_in.name != r_out.name):
             raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
 
+        ons_models.roadmsDBM.oper_connection(conns.ingress, conns.egress,
+                                             ons_models.OPERATIONAL.READY_BUSY)
         ons_comms.commandsMngr.makeXConnection(r_in.type, r_in.name, conns.xconn_id,
                                                r_in.endpoint, r_in.label,
                                                r_out.endpoint, r_out.label)
@@ -199,6 +201,8 @@ class RMRoadmManager(RMInterface):
         if (r_in.type != r_out.type) or (r_in.name != r_out.name):
             raise ons_ex.ONSException("Mismatch between ingress/egress openNaas resources!")
 
+        ons_models.roadmsDBM.oper_connection(conns.ingress, conns.egress,
+                                             ons_models.OPERATIONAL.READY)
         ons_comms.commandsMngr.removeXConnection(r_in.type, r_in.name, conns.xconn_id)
         return (r_in.type, r_in.name)
 
@@ -210,10 +214,11 @@ class RMRoadmManager(RMInterface):
         ons_comms.commandsMngr.removeXConnection(r_in.type, r_in.name, conns.xconn_id)
         return (r_in.type, r_in.name)
 
-    def create_geni_resource(self, resource_name, endpoint, label,
-                             slice_name, end_time, resource_type, allocation):
+    def create_geni_resource(self, resource_name, endpoint, label, slice_name,
+                             end_time, resource_type, allocation, operational):
         urn_ = ons_models.create_roadm_urn(resource_name, endpoint, label)
-        return ons_models.GeniResource(urn_, slice_name, end_time, resource_type, allocation)
+        return ons_models.GeniResource(urn_, slice_name, end_time,
+                                       resource_type, allocation, operational)
 
     @worker.outsideprocess
     def update_resources(self, params):
@@ -229,8 +234,8 @@ class RMRoadmManager(RMInterface):
             ons_models.roadmsDBM.open_session()
             rs_ = ons_models.roadmsDBM.get_resources()
 
-            return [self.create_geni_resource(rname, ep, lb, sname, endt, rtype, alloc)
-                    for (rname, ep, lb, sname, endt, rtype, alloc) in rs_]
+            return [self.create_geni_resource(rname, ep, lb, sname, endt, rtype, alloc, oper)
+                    for (rname, ep, lb, sname, endt, rtype, alloc, oper) in rs_]
         finally:
             ons_models.roadmsDBM.close_session()
 
@@ -257,8 +262,9 @@ class RMRoadmManager(RMInterface):
             for ingress_id, egress_id, xconn_id in conns_:
                 ons_models.roadmsDBM.make_connection(ingress_id, egress_id, xconn_id, values)
 
-            return self.__create_manifest(resources, slice_name, end_time, ons_models.ALLOCATION.ALLOCATED)
-
+            return self.__create_manifest(resources, slice_name, end_time,
+                                          ons_models.ALLOCATION.ALLOCATED,
+                                          ons_models.OPERATIONAL.READY)
         finally:
             ons_models.roadmsDBM.close_session()
 
