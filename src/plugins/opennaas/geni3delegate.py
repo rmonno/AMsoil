@@ -6,6 +6,7 @@ GENIv3DelegateBase = pm.getService('geniv3delegatebase')
 geni_ex = pm.getService('geniv3exceptions')
 ons_ex = pm.getService('opennaas_exceptions')
 ons_models = pm.getService('opennaas_models')
+config = pm.getService("config")
 
 """
 GENI delegate.
@@ -45,7 +46,8 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def list_resources(self, client_cert, credentials, geni_available):
-        self.__authenticate(client_cert, credentials, None, ('listslices',))
+        if config.get('opennaas.check_credentials'):
+            self.__authenticate(client_cert, credentials, None, ('listslices',))
 
         rn_ = self.lxml_ad_root()
         em_ = self.lxml_ad_element_maker(self.NAMESPACE_PREFIX)
