@@ -79,7 +79,9 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
     def status(self, urns, client_cert, credentials):
         rs_ = []
         for u_ in urns:
-            self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
+            if config.get('opennaas.check_credentials'):
+                self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
+
             if self.urn_type(u_) != 'slice':
                 raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
 
