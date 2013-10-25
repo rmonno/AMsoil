@@ -99,7 +99,10 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def allocate(self, slice_urn, client_cert, credentials, rspec, end_time=None):
-        c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
+        c_urn_, c_uuid_, c_email_ = None, None, None
+        if config.get('opennaas.check_credentials'):
+            c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
+
         logger.debug("client_urn=%s, client_uuid=%s, client_email=%s" % (str(c_urn_), str(c_uuid_), str(c_email_),))
 
         resources_ = []
