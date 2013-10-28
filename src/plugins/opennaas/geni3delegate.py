@@ -46,8 +46,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def list_resources(self, client_cert, credentials, geni_available):
-        if config.get('opennaas.check_credentials'):
-            self.__authenticate(client_cert, credentials, None, ('listslices',))
+        self.__authenticate(client_cert, credentials, None, ('listslices',))
 
         rn_ = self.lxml_ad_root()
         em_ = self.lxml_ad_element_maker(self.NAMESPACE_PREFIX)
@@ -79,8 +78,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
     def status(self, urns, client_cert, credentials):
         rs_ = []
         for u_ in urns:
-            if config.get('opennaas.check_credentials'):
-                self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
+            self.__authenticate(client_cert, credentials, u_, ('sliverstatus',))
 
             if self.urn_type(u_) != 'slice':
                 raise geni_ex.GENIv3OperationUnsupportedError('Only slice URNs can be given to this aggregate')
@@ -99,9 +97,7 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     @enter_method_log
     def allocate(self, slice_urn, client_cert, credentials, rspec, end_time=None):
-        c_urn_, c_uuid_, c_email_ = None, None, None
-        if config.get('opennaas.check_credentials'):
-            c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
+        c_urn_, c_uuid_, c_email_ = self.__authenticate(client_cert, credentials, slice_urn, ('createsliver',))
 
         logger.debug("client_urn=%s, client_uuid=%s, client_email=%s" % (str(c_urn_), str(c_uuid_), str(c_email_),))
 
@@ -253,7 +249,11 @@ class OpenNaasGENI3Delegate(GENIv3DelegateBase):
 
     #private
     def __authenticate(self, client_cert, credentials, slice_urn=None, privileges=()):
-        return self.auth(client_cert, credentials, slice_urn, privileges)
+        user_urn, user_uuid, user_mail = None, None, None
+        if config.get('opennaas.check_credentials'):
+            user_urn, user_uuid, user_mail = self.auth(client_cert, credentials, slice_urn, privileges)
+
+        return user_urn, user_uuid, user_mail
 
     def __convert_allocation_2geni(self, state):
         if state == ons_models.ALLOCATION.FREE:
