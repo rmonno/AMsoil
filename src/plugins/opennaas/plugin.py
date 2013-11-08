@@ -8,14 +8,14 @@ OpenNaas plugin.
 def setup():
     # setup config keys
     config = pm.getService("config")
-    config.install("opennaas.db_dir", "/tmp", "(Sqlite) database directory")
+    config.install("opennaas.db_dir", "/opt/amsoil", "(Sqlite) database directory")
     config.install("opennaas.db_dump_stat", False, "(Sqlite) database dump statements")
     config.install("opennaas.reservation_timeout", 600, "Reservation timeout (minutes)")
     config.install("opennaas.server_address", "localhost", "OpenNaas server address")
     config.install("opennaas.server_port", 8888, "OpenNaas server port")
     config.install("opennaas.user", "admin", "OpenNaas user")
     config.install("opennaas.password", "123456", "OpenNaas password")
-    config.install("opennaas.update_timeout", 10, "Update resources timeout (secs)")
+    config.install("opennaas.update_timeout", 5, "Update resources timeout (secs)")
     config.install("opennaas.update_step", 100, "Update resources step")
     config.install("opennaas.check_expire_timeout", 60, "Check resources expiration timeout (secs)")
     config.install("opennaas.check_credentials", False, "Check credentials for incoming requests")
