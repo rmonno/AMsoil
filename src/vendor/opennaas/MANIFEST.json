@@ -1,0 +1,10 @@
+{
+  "name" : "OpenNaas (Wonesys resource) resource manager",
+  "author" : "Roberto Monno",
+  "author-email" : "r.monno@nextworks.it",
+  "version" : 1,
+  "implements" : ["opennaas_resourcemanager", "opennaas_exceptions",
+                  "opennaas_models", "opennaas_commands", "opennaas_fsm"],
+  "loads-after" : ["geniv3handler", "geniv3delegatebase", "geniv3exceptions", "config", "worker"],
+  "requires" : []
+}
