@@ -85,6 +85,7 @@ class RoadmCM(CommandsManager):
 
     def __init__(self, host, port):
         super(RoadmCM, self).__init__(host, port)
+        self.error_code = ['ERROR', 'error']
 
     def decode_xml_conn(self, xml_data):
         try:
@@ -107,6 +108,15 @@ class RoadmCM(CommandsManager):
         ET.SubElement(root, 'dstLabelId').text = dst_label
 
         return ET.tostring(root)
+
+    def check_queue_error(self, response):
+        root = ET.fromstring(response)
+        for responses in root.findall('responses'):
+            status = responses.find('status').text
+            if status in self.error_code:
+                return True, responses.find('actionID').text
+
+        return False, None
 
     def makeXConnection(self, r_type, r_name, instance_id,
                         src_ep_id, src_label_id,
@@ -145,7 +155,11 @@ class RoadmCM(CommandsManager):
 
     def execute(self, r_type, r_name):
         command = r_type + '/' + r_name + '/queue/execute'
-        self.post(self._base_url + command, None)
+        r = self.post(self._base_url + command, None)
+
+        error, reason = self.check_queue_error(r)
+        if error:
+            raise ons_ex.ONSException(reason)
 
 
 commandsMngr = RoadmCM(host=config.get("opennaas.server_address"),
