@@ -112,9 +112,16 @@ class RoadmCM(CommandsManager):
     def check_queue_error(self, response):
         root = ET.fromstring(response)
         for responses in root.findall('responses'):
-            status = responses.find('status').text
+            status = responses.findtext('status')
             if status in self.error_code:
-                return True, responses.find('actionID').text
+                if responses.findtext('information'):
+                    return True, responses.findtext('information')
+
+                elif responses.findtext('actionID'):
+                    return True, responses.findtext('actionID')
+
+                else:
+                    return True, 'UnExpected queue error!'
 
         return False, None
 
